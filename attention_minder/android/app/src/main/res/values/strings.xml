@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">attention_minder</string>
+
+    <string name="facebook_app_id">1160977685845911</string>
+
+    <string name="facebook_client_token">
+        595086461108214659c3aff6404203ca
+    </string>
+</resources>

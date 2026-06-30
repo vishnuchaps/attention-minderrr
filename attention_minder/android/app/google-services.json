@@ -1,0 +1,62 @@
+{
+  "project_info": {
+    "project_number": "908828655450",
+    "project_id": "attentionminder-3f4d6",
+    "storage_bucket": "attentionminder-3f4d6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:908828655450:android:8664641de11f043edb3d63",
+        "android_client_info": {
+          "package_name": "com.example.adhd_minder"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "908828655450-cd767skbe56i2mhs6ndf4tk9josarnoq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.adhd_minder",
+            "certificate_hash": "e9332dca8eab222af592363a0f7e4ba2eca9b80c"
+          }
+        },
+        {
+          "client_id": "908828655450-is6o6u9o7u17ejmbhb5tf7e6hl1eng63.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.adhd_minder",
+            "certificate_hash": "4c87386b693dec43fe30ec6dcb59afd97bda5c5c"
+          }
+        },
+        {
+          "client_id": "908828655450-tnfd4g2tn7s037j3hkt02skclv8f642u.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyClVbf7JzKio5Cn3KURCWVEVVngjxgKMEU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "908828655450-tnfd4g2tn7s037j3hkt02skclv8f642u.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "908828655450-45pfs3nv3439mquonumkmjf5lkrlp7gj.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "attentionminder.trufoxai.com"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
