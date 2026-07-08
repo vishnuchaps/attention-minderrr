@@ -841,339 +841,495 @@ face_height             : ${facePos?['client_height']}
 
           return PopScope(
             canPop: false,
-            child: AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
+            child: _buildAttentionAlertDialog(
+              context: context,
+              message: message,
+              recommendations: recommendations,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildAttentionAlertDialog({
+    required BuildContext context,
+    required String message,
+    required List<String> recommendations,
+  }) {
+    final isReady = _verifyUserReady();
+    final screenSize = MediaQuery.sizeOf(context);
+    final maxDialogHeight = screenSize.height * 0.86;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+      backgroundColor: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxDialogHeight, maxWidth: 430),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xFF151719),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.55),
+                blurRadius: 28,
+                offset: const Offset(0, 18),
               ),
-              backgroundColor: Colors.grey.shade900,
-              title: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEF5350).withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.warning_amber_rounded,
-                      color: Color(0xFFEF5350),
-                      size: 32,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'Attention Alert',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFFEF5350),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+            ],
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEF5350).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: const Color(0xFFEF5350).withOpacity(0.3),
-                        ),
+                        color: const Color(0xFFEF5350).withValues(alpha: 0.14),
+                        shape: BoxShape.circle,
                       ),
-                      child: Text(
-                        message,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: Colors.white,
-                          height: 1.4,
-                        ),
-                        textAlign: TextAlign.center,
+                      child: const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Color(0xFFEF5350),
+                        size: 32,
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    Center(
+                    const SizedBox(width: 14),
+                    Expanded(
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Current Focus Score',
+                          const Text(
+                            'Attention Alert',
                             style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade400,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '$_attentionScore%',
-                            style: TextStyle(
-                              fontSize: 36,
+                              fontSize: 22,
                               fontWeight: FontWeight.bold,
-                              color: _attentionScore > 70
-                                  ? const Color(0xFF66BB6A)
-                                  : _attentionScore > 40
-                                  ? const Color(0xFFFFA726)
-                                  : const Color(0xFFEF5350),
+                              color: Color(0xFFEF5350),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    if (recommendations.isNotEmpty) ...[
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Recommendations:',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFFF7C14A),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ...recommendations.map(
-                        (rec) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(
-                                Icons.check_circle_outline,
-                                size: 16,
-                                color: Color(0xFFF7C14A),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  rec,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade300,
-                                    height: 1.3,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _verifyUserReady()
-                            ? const Color(0xFF66BB6A).withOpacity(0.1)
-                            : const Color(0xFFEF5350).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _verifyUserReady()
-                              ? const Color(0xFF66BB6A)
-                              : const Color(0xFFEF5350),
-                          width: 2,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _verifyUserReady()
-                                ? Icons.check_circle
-                                : Icons.error,
-                            color: _verifyUserReady()
-                                ? const Color(0xFF66BB6A)
-                                : const Color(0xFFEF5350),
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _verifyUserReady()
-                                  ? 'Ready to resume - Face detected and focused!'
-                                  : 'Not ready yet - Please adjust your position',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: _verifyUserReady()
-                                    ? const Color(0xFF66BB6A)
-                                    : const Color(0xFFEF5350),
-                                fontWeight: FontWeight.w600,
-                              ),
+                          const SizedBox(height: 6),
+                          Text(
+                            message,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              color: Colors.white,
+                              height: 1.32,
+                              fontWeight: FontWeight.w600,
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade800,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _buildStatItem('Alerts', _totalAlerts.toString()),
-                          Container(
-                            width: 1,
-                            height: 30,
-                            color: Colors.grey.shade700,
-                          ),
-                          _buildStatItem('Pauses', _pauseCount.toString()),
-                          Container(
-                            width: 1,
-                            height: 30,
-                            color: Colors.grey.shade700,
-                          ),
-                          _buildStatItem(
-                            'Time',
-                            _formatDuration(_sessionDuration),
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
-              ),
-              actions: [
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      if (_verifyUserReady()) {
-                        setState(() {
-                          _isShowingAlert = false;
-                          _consecutiveGoodFrames = 0;
-                          _consecutiveBadFrames = 0;
-                          _sameWarningReasonCount = 0;
-                          _lastWarningReason = null;
-                        });
-                        Navigator.pop(context);
-                        _videoController?.play();
-                      } else {
-                        final latestResult = _latestValidationResult;
-                        String feedbackMessage = 'Please ensure:';
-                        List<String> issues = [];
-
-                        if (latestResult != null) {
-                          if (!(latestResult['face_detected'] ?? false)) {
-                            issues.add('✗ Your face is visible in the camera');
-                          }
-
-                          final analysis =
-                              latestResult['analysis'] as Map<String, dynamic>?;
-
-                          if (analysis?['low_light'] == true) {
-                            issues.add(
-                              '✗ Lighting is bright enough for clear face detection',
-                            );
-                          }
-
-                          if (analysis?['not_drowsy'] == false) {
-                            issues.add('✗ You are not drowsy');
-                          }
-
-                          if (analysis?['yawning'] == true) {
-                            issues.add('✗ You are not yawning');
-                          }
-
-                          if (analysis?['eyes_closed'] == true) {
-                            issues.add('✗ Your eyes are open');
-                          }
-
-                          if (!widget.isAssessment) {
-                            if (!(latestResult['validation_passed'] ?? false)) {
-                              issues.add('✗ You are properly positioned');
-                            }
-
-                            final concentrationScore =
-                                latestResult['concentration_score'] ?? 0;
-
-                            if (concentrationScore < 7) {
-                              issues.add(
-                                '✗ Your concentration level is adequate (currently: $concentrationScore/10)',
-                              );
-                            }
-
-                            final engagement =
-                                latestResult['engagement']
-                                    as Map<String, dynamic>?;
-
-                            if (engagement != null &&
-                                !(engagement['video_attentive'] ?? false)) {
-                              issues.add('✗ You are looking at the screen');
-                            }
-                          }
-                        }
-
-                        if (issues.isEmpty) {
-                          issues.add('Please wait a moment and try again');
-                        }
-
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  feedbackMessage,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                ...issues.map(
-                                  (issue) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 4),
-                                    child: Text(
-                                      issue,
-                                      style: const TextStyle(fontSize: 13),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            backgroundColor: const Color(0xFFEF5350),
-                            duration: const Duration(seconds: 4),
-                            behavior: SnackBarBehavior.floating,
-                          ),
-                        );
-
-                        await _notificationService?.playAttentionAlert(
-                          customMessage:
-                              'Not ready yet. ${issues.first.replaceAll('✗ ', '')}',
-                          playSound: false,
-                          speakMessage: true,
-                        );
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF42A5F5),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                const SizedBox(height: 18),
+                _buildAlertCameraPanel(isReady: isReady),
+                const SizedBox(height: 14),
+                _buildFocusScorePanel(),
+                if (recommendations.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _buildRecommendationPanel(recommendations),
+                ],
+                const SizedBox(height: 14),
+                _buildReadyStatusPanel(isReady: isReady),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.08),
                     ),
-                    child: const Text(
-                      'I\'m Ready - Resume Video',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildStatItem('Alerts', _totalAlerts.toString()),
+                      Container(
+                        width: 1,
+                        height: 34,
+                        color: Colors.white.withValues(alpha: 0.16),
                       ),
+                      _buildStatItem('Pauses', _pauseCount.toString()),
+                      Container(
+                        width: 1,
+                        height: 34,
+                        color: Colors.white.withValues(alpha: 0.16),
+                      ),
+                      _buildStatItem('Time', _formatDuration(_sessionDuration)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                ElevatedButton(
+                  onPressed: () => _handleAttentionAlertResumePressed(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1599E8),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
+                  ),
+                  child: const Text(
+                    'I\'m Ready - Resume Video',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
             ),
-          );
-        },
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _buildAlertCameraPanel({required bool isReady}) {
+    final latestResult = _latestValidationResult;
+    final analysis = latestResult?['analysis'] as Map<String, dynamic>?;
+    final engagement = latestResult?['engagement'] as Map<String, dynamic>?;
+    final faceDetected = latestResult?['face_detected'] == true;
+    final validationPassed = latestResult?['validation_passed'] == true;
+    final frameOk = widget.isAssessment ? faceDetected : validationPassed;
+    final eyesOpen = analysis?['eyes_closed'] != true;
+    final lightingOk = analysis?['low_light'] != true;
+    final attentive = widget.isAssessment
+        ? isReady
+        : engagement?['video_attentive'] == true;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isReady ? const Color(0xFF43E267) : const Color(0xFFFF4D5E),
+          width: 2,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: AspectRatio(
+          aspectRatio: 4 / 3,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_isCameraInitialized && _cameraController != null)
+                FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: _cameraController!.value.previewSize?.height ?? 1,
+                    height: _cameraController!.value.previewSize?.width ?? 1,
+                    child: CameraPreview(_cameraController!),
+                  ),
+                )
+              else
+                const ColoredBox(
+                  color: Color(0xFF24272A),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  ),
+                ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.12),
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.18),
+                    ],
+                  ),
+                ),
+              ),
+              CustomPaint(
+                painter: _AlertCameraFramePainter(
+                  color: isReady
+                      ? const Color(0xFF43E267)
+                      : const Color(0xFFFF4D5E),
+                ),
+              ),
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    _buildCameraStatusChip('Face', faceDetected),
+                    _buildCameraStatusChip('Frame', frameOk),
+                    _buildCameraStatusChip('Eyes', eyesOpen),
+                    _buildCameraStatusChip('Light', lightingOk),
+                    _buildCameraStatusChip('Focus', attentive),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCameraStatusChip(String label, bool isOk) {
+    final color = isOk ? const Color(0xFF43E267) : const Color(0xFFFF4D5E);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.7)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isOk ? Icons.check_rounded : Icons.close_rounded,
+            color: color,
+            size: 15,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFocusScorePanel() {
+    final scoreColor = _attentionScore > 70
+        ? const Color(0xFF66BB6A)
+        : _attentionScore > 40
+        ? const Color(0xFFFFA726)
+        : const Color(0xFFEF5350);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Current Focus Score',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade300),
+            ),
+          ),
+          Text(
+            '$_attentionScore%',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: scoreColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecommendationPanel(List<String> recommendations) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7C14A).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFF7C14A).withValues(alpha: 0.28),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Recommendations:',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFF7C14A),
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...recommendations.map(
+            (rec) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.check_circle_outline,
+                    size: 16,
+                    color: Color(0xFFF7C14A),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      rec,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade200,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadyStatusPanel({required bool isReady}) {
+    final color = isReady ? const Color(0xFF66BB6A) : const Color(0xFFEF5350);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Row(
+        children: [
+          Icon(isReady ? Icons.check_circle : Icons.error, color: color),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              isReady
+                  ? 'Ready to resume - Face detected and focused!'
+                  : 'Not ready yet - Please adjust your position',
+              style: TextStyle(
+                fontSize: 13,
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleAttentionAlertResumePressed(BuildContext context) async {
+    if (_verifyUserReady()) {
+      setState(() {
+        _isShowingAlert = false;
+        _consecutiveGoodFrames = 0;
+        _consecutiveBadFrames = 0;
+        _sameWarningReasonCount = 0;
+        _lastWarningReason = null;
+      });
+      Navigator.pop(context);
+      _videoController?.play();
+      return;
+    }
+
+    final latestResult = _latestValidationResult;
+    String feedbackMessage = 'Please ensure:';
+    List<String> issues = [];
+
+    if (latestResult != null) {
+      if (!(latestResult['face_detected'] ?? false)) {
+        issues.add('✗ Your face is visible in the camera');
+      }
+
+      final analysis = latestResult['analysis'] as Map<String, dynamic>?;
+
+      if (analysis?['low_light'] == true) {
+        issues.add('✗ Lighting is bright enough for clear face detection');
+      }
+
+      if (analysis?['not_drowsy'] == false) {
+        issues.add('✗ You are not drowsy');
+      }
+
+      if (analysis?['yawning'] == true) {
+        issues.add('✗ You are not yawning');
+      }
+
+      if (analysis?['eyes_closed'] == true) {
+        issues.add('✗ Your eyes are open');
+      }
+
+      if (!widget.isAssessment) {
+        if (!(latestResult['validation_passed'] ?? false)) {
+          issues.add('✗ You are properly positioned');
+        }
+
+        final concentrationScore = latestResult['concentration_score'] ?? 0;
+
+        if (concentrationScore < 7) {
+          issues.add(
+            '✗ Your concentration level is adequate (currently: $concentrationScore/10)',
+          );
+        }
+
+        final engagement = latestResult['engagement'] as Map<String, dynamic>?;
+
+        if (engagement != null && !(engagement['video_attentive'] ?? false)) {
+          issues.add('✗ You are looking at the screen');
+        }
+      }
+    }
+
+    if (issues.isEmpty) {
+      issues.add('Please wait a moment and try again');
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              feedbackMessage,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            ...issues.map(
+              (issue) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(issue, style: const TextStyle(fontSize: 13)),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFFEF5350),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    await _notificationService?.playAttentionAlert(
+      customMessage: 'Not ready yet. ${issues.first.replaceAll('✗ ', '')}',
+      playSound: false,
+      speakMessage: true,
     );
   }
 
@@ -1553,7 +1709,7 @@ face_height             : ${facePos?['client_height']}
                       child: CircularProgressIndicator(color: Colors.white),
                     ),
             ),
-            if (_isCameraInitialized)
+            if (_isCameraInitialized && !_isShowingAlert)
               Positioned(
                 top: 16,
                 right: 16,
@@ -2754,6 +2910,121 @@ class _AssessmentConfettiPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _AlertCameraFramePainter extends CustomPainter {
+  final Color color;
+
+  const _AlertCameraFramePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cornerPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round;
+
+    final guidePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.82)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2;
+
+    final guidePath = Path()
+      ..addOval(
+        Rect.fromCenter(
+          center: Offset(size.width / 2, size.height * 0.48),
+          width: size.width * 0.38,
+          height: size.height * 0.68,
+        ),
+      );
+
+    canvas.drawPath(
+      dashPath(guidePath, dashArray: const [10.0, 10.0]),
+      guidePaint,
+    );
+
+    const inset = 18.0;
+    final cornerLength = size.shortestSide * 0.12;
+    final right = size.width - inset;
+    final bottom = size.height - inset;
+
+    canvas.drawLine(
+      const Offset(inset, inset),
+      Offset(inset + cornerLength, inset),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      const Offset(inset, inset),
+      Offset(inset, inset + cornerLength),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(right, inset),
+      Offset(right - cornerLength, inset),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(right, inset),
+      Offset(right, inset + cornerLength),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(inset, bottom),
+      Offset(inset + cornerLength, bottom),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(inset, bottom),
+      Offset(inset, bottom - cornerLength),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(right, bottom),
+      Offset(right - cornerLength, bottom),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(right, bottom),
+      Offset(right, bottom - cornerLength),
+      cornerPaint,
+    );
+  }
+
+  Path dashPath(Path source, {required List<double> dashArray}) {
+    final dashedPath = Path();
+    final dashLength = dashArray[0];
+    final dashSpace = dashArray[1];
+
+    for (final metric in source.computeMetrics()) {
+      var distance = 0.0;
+      var drawDash = true;
+
+      while (distance < metric.length) {
+        final length = drawDash ? dashLength : dashSpace;
+        final nextDistance = (distance + length)
+            .clamp(0.0, metric.length)
+            .toDouble();
+
+        if (drawDash) {
+          dashedPath.addPath(
+            metric.extractPath(distance, nextDistance),
+            Offset.zero,
+          );
+        }
+
+        distance = nextDistance;
+        drawDash = !drawDash;
+      }
+    }
+
+    return dashedPath;
+  }
+
+  @override
+  bool shouldRepaint(covariant _AlertCameraFramePainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
 }
 
 class _ConfettiItem {

@@ -34,7 +34,7 @@ class MyApp extends StatelessWidget {
     final AuthenticationBloc authenticationBloc = getIt<AuthenticationBloc>();
     final ProfileBloc profileBloc = getIt<ProfileBloc>();
     final AssignmentBloc assignmentBloc = getIt<AssignmentBloc>();
-    final AttentionManagementBloc attentionManagementBloc =
+    final AttentionManagementBloc attentionManagementBloc = 
         getIt<AttentionManagementBloc>();
     final FileHandlerBloc fileHandlerBloc = getIt<FileHandlerBloc>();
     final ProgressBloc progressBloc = getIt<ProgressBloc>();
