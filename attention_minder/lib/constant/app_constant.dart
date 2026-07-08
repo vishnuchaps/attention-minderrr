@@ -5,6 +5,9 @@ const String wsBaseUrl = "ws://13.217.234.177:8000";
 // const String wsFaceDetectionUrl = "ws://13.217.234.177:8000/ws/face-detection/";
 const String wsFaceDetectionUrl = "ws://13.217.234.177/ws/face-detection/";
 
+const String googleOAuthServerClientId =
+    "710692342031-am9f4baqjbdflljf72jajfmi30o31tfk.apps.googleusercontent.com";
+
 // ============================================================================
 // AUTHENTICATION ENDPOINTS
 // ============================================================================

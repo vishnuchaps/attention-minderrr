@@ -1,13 +1,10 @@
 import 'package:attention_minder/constant/app_constant.dart';
-import 'package:attention_minder/core/network/base_http_client.dart';
 import 'package:attention_minder/module/authentication/data/repository/iauthentication_repository.dart';
 import 'package:dio/dio.dart';
 import 'package:injectable/injectable.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 @Injectable(as: IAuthenticationRepository)
 class AuthenticationRepository extends IAuthenticationRepository {
-  final ApiService _apiService = ApiService(baseUrl);
   final Dio _dio = Dio(
     BaseOptions(
       baseUrl: baseUrl,
@@ -30,7 +27,6 @@ class AuthenticationRepository extends IAuthenticationRepository {
 
       return response.data;
     } on DioException catch (e) {
-      print(e);
       throw Exception(
         e.response?.data['message'] ?? "Login failed. Please try again.",
       );
@@ -46,7 +42,6 @@ class AuthenticationRepository extends IAuthenticationRepository {
     required bool isStaff,
   }) async {
     try {
-      print("${_dio.options.baseUrl}$registrationEndpoint");
       Response response = await _dio.post(
         registrationEndpoint,
         options: Options(headers: {'Content-Type': 'application/json'}),
@@ -58,14 +53,8 @@ class AuthenticationRepository extends IAuthenticationRepository {
           "is_staff": isStaff,
         },
       );
-      print(response.data);
       return response.data;
     } on DioException catch (e) {
-      print(e);
-      print('Status Code: ${e.response?.statusCode}');
-      print('Response Data: ${e.response?.data}');
-      print('Response Headers: ${e.response?.headers}');
-
       throw Exception(
         e.response?.data.toString() ?? "Registration failed. Please try again.",
       );
@@ -148,23 +137,41 @@ class AuthenticationRepository extends IAuthenticationRepository {
   Future<Map<String, dynamic>> socialLogin({
     required String token,
     required String provider,
+    String tokenField = 'id_token',
   }) async {
-    // Note: Adjust the body based on your actual backend requirement.
-    // Usually it sends 'access_token' and 'provider'.
-    final data = {'id_token': token, 'provider': provider};
-
     try {
       Response response = await _dio.post(
         socialLoginEndpoint,
         options: Options(headers: {'Content-Type': 'application/json'}),
-        data: data,
+        data: {'provider': provider, tokenField: token},
       );
       return response.data;
     } on DioException catch (e) {
-      print('STATUS: ${e.response?.statusCode}');
-      print('DATA: ${e.response?.data}');
-      print('ERROR: ${e.message}');
-      rethrow;
+      throw Exception(_extractErrorMessage(e, 'Social login failed.'));
     }
+  }
+
+  String _extractErrorMessage(DioException error, String fallback) {
+    final responseData = error.response?.data;
+
+    if (responseData is Map<String, dynamic>) {
+      final message =
+          responseData['message'] ??
+          responseData['detail'] ??
+          responseData['error'] ??
+          responseData['non_field_errors'];
+      if (message is List && message.isNotEmpty) {
+        return message.first.toString();
+      }
+      if (message != null) {
+        return message.toString();
+      }
+    }
+
+    if (responseData is String && responseData.trim().isNotEmpty) {
+      return responseData;
+    }
+
+    return fallback;
   }
 }

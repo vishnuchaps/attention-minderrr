@@ -1,6 +1,8 @@
 abstract class IAuthenticationRepository {
-  Future<Map<String, dynamic>> login(
-      {required String email, required String password});
+  Future<Map<String, dynamic>> login({
+    required String email,
+    required String password,
+  });
   Future<Map<String, dynamic>> register({
     required String username,
     required String email,
@@ -21,5 +23,6 @@ abstract class IAuthenticationRepository {
   Future<Map<String, dynamic>> socialLogin({
     required String token,
     required String provider,
+    String tokenField = 'id_token',
   });
 }

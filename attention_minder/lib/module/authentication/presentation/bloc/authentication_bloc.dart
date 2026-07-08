@@ -142,26 +142,18 @@ class AuthenticationBloc
   ) async {
     emit(AuthenticationLoading());
     try {
-      final result = await _socialAuthService.signInWithGoogle();
-      if (result != null) {
-        // Use the Google ID Token returned directly from the service
-        final idToken = result['idToken'] as String?;
-
-        if (idToken != null) {
-          final response = await _authRepository.socialLogin(
-            token: idToken,
-            provider: 'google',
-          );
-          emit(AuthenticationSuccess(response));
-          saveUserData(response);
-        } else {
-          emit(AuthenticationError("Failed to retrieve Google ID Token"));
-        }
+      final idToken = await _socialAuthService.signInWithGoogle();
+      if (idToken != null) {
+        final response = await _authRepository.socialLogin(
+          token: idToken,
+          provider: 'google',
+        );
+        emit(AuthenticationSuccess(response));
+        saveUserData(response);
       } else {
         emit(AuthenticationInitial()); // User cancelled
       }
     } catch (e) {
-      print(e);
       emit(AuthenticationError(e.toString()));
     }
   }
@@ -172,24 +164,18 @@ class AuthenticationBloc
   ) async {
     emit(AuthenticationLoading());
     try {
-      final userCredential = await _socialAuthService.signInWithFacebook();
-      if (userCredential != null) {
-        final idToken = await userCredential.user?.getIdToken();
-        if (idToken != null) {
-          final response = await _authRepository.socialLogin(
-            token: idToken,
-            provider: 'facebook',
-          );
-          emit(AuthenticationSuccess(response));
-          saveUserData(response);
-        } else {
-          emit(AuthenticationError("Failed to retrieve Facebook ID Token"));
-        }
+      final accessToken = await _socialAuthService.signInWithFacebook();
+      if (accessToken != null) {
+        final response = await _authRepository.socialLogin(
+          token: accessToken,
+          provider: 'facebook',
+        );
+        emit(AuthenticationSuccess(response));
+        saveUserData(response);
       } else {
         emit(AuthenticationInitial()); // User cancelled
       }
     } catch (e) {
-      print(e);
       emit(AuthenticationError(e.toString()));
     }
   }
@@ -212,7 +198,5 @@ Future<void> saveUserData(
     if (showHomeWalkthrough) {
       await prefs.setBool('showHomeWalkthrough', true);
     }
-
-    print("✅ Access token and user details saved!");
   }
 }

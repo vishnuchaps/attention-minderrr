@@ -31,8 +31,10 @@ class LegalScreen extends StatelessWidget {
               height: 200,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border:
-                    Border.all(color: Colors.orange.withOpacity(0.2), width: 2),
+                border: Border.all(
+                  color: Colors.orange.withOpacity(0.2),
+                  width: 2,
+                ),
               ),
             ),
           ),
@@ -44,8 +46,10 @@ class LegalScreen extends StatelessWidget {
               height: 300,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border:
-                    Border.all(color: Colors.orange.withOpacity(0.2), width: 2),
+                border: Border.all(
+                  color: Colors.orange.withOpacity(0.2),
+                  width: 2,
+                ),
               ),
             ),
           ),
@@ -58,16 +62,16 @@ class LegalScreen extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Row(
                   children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ),
+                    // Container(
+                    //   decoration: BoxDecoration(
+                    //     color: Colors.white,
+                    //     borderRadius: BorderRadius.circular(12),
+                    //   ),
+                    //   child: IconButton(
+                    //     icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                    //     onPressed: () => Navigator.of(context).pop(),
+                    //   ),
+                    // ),
                     Expanded(
                       child: Text(
                         title,
@@ -127,7 +131,9 @@ class LegalScreen extends StatelessWidget {
                         // Bottom Action Bar
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 20),
+                            vertical: 16,
+                            horizontal: 20,
+                          ),
                           margin: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: const Color(0xFF2C2C2C),
@@ -141,15 +147,18 @@ class LegalScreen extends StatelessWidget {
                                 child: const Text(
                                   "Terms of Service",
                                   style: TextStyle(
-                                      color: Colors.grey, fontSize: 12),
+                                    color: Colors.grey,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ),
                               OutlinedButton(
                                 onPressed: () {
                                   Navigator.of(context).push(
                                     MaterialPageRoute(
-                                        builder: (context) =>
-                                            const ContactSupportScreen()),
+                                      builder: (context) =>
+                                          const ContactSupportScreen(),
+                                    ),
                                   );
                                 },
                                 style: OutlinedButton.styleFrom(
@@ -158,12 +167,15 @@ class LegalScreen extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 20),
+                                    horizontal: 20,
+                                  ),
                                 ),
                                 child: const Text(
                                   "Contact Support",
                                   style: TextStyle(
-                                      color: Colors.white, fontSize: 12),
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ),
                             ],

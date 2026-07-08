@@ -1,4 +1,4 @@
-package com.example.adhd_minder
+package com.trufox.attentionminder
 
 import io.flutter.embedding.android.FlutterActivity
 

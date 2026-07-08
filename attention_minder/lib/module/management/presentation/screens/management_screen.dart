@@ -1,11 +1,10 @@
+import 'dart:ui';
+
 import 'package:attention_minder/constant/asset_path.dart';
-import 'package:attention_minder/module/assigment/presentation/widgets/assignment_overlay_widget.dart';
-import 'package:attention_minder/module/assigment/presentation/widgets/text_card_widget.dart';
-import 'package:attention_minder/module/assigment/presentation/widgets/title_subtitle_widget.dart';
-import 'package:attention_minder/module/assigment/presentation/widgets/yellow_test_card_widget.dart';
 import 'package:attention_minder/module/attention_management/presentation/screens/attention_program_overview_screen.dart';
 import 'package:attention_minder/module/home/presentation/widgets/featured_articles_section.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class ManagementScreen extends StatelessWidget {
   final bool showBackButton;
@@ -67,54 +66,599 @@ class ManagementScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       barrierDismissible: true,
-      builder: (dialogContext) => AssignmentOverlayWidget(
-        selfAssignmentIcon: selfAssignmentIcon,
-        selfAssignmentLeftImage: selfAssignmentLeftImage,
-        selfAssignmentCenterImage: selfAssignmentCenterImage,
-        selfAssignmentRightImage: selfAssignmentRightImage,
-        arrowIcon: arrowIcon,
-        backIconPath: backIconPath,
-        assignmentType: 'Attention Management using AI ',
-        yellowTestCardWidget: const YellowTestCardWidget(
-          title: 'Preparation',
-          subTitle:
-              'Choose a quiet, comfortable location free from distractions. Ensure you have a reliable smartphone with internet access.',
+      barrierColor: const Color(0xB80A1424),
+      builder: (dialogContext) {
+        return BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 7, sigmaY: 7),
+          child: _ManagementProgramDialog(
+            onClose: () => Navigator.of(dialogContext).pop(),
+            onGetStarted: () {
+              Navigator.pop(dialogContext);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AttentionProgramOverviewScreen(),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ManagementProgramDialog extends StatefulWidget {
+  final VoidCallback onClose;
+  final VoidCallback onGetStarted;
+
+  const _ManagementProgramDialog({
+    required this.onClose,
+    required this.onGetStarted,
+  });
+
+  static const _navy = Color(0xFF101D36);
+  static const _copy = Color(0xFF48546A);
+  static const _blue = Color(0xFF0F7FFF);
+  static const _iconBg = Color(0xFFEAF5FF);
+
+  @override
+  State<_ManagementProgramDialog> createState() =>
+      _ManagementProgramDialogState();
+}
+
+class _ManagementProgramDialogState extends State<_ManagementProgramDialog> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.sizeOf(context);
+    final shortestSide = media.shortestSide;
+    final scale = (shortestSide / 430).clamp(.78, .94).toDouble();
+    final horizontalInset = (shortestSide * .065).clamp(18.0, 30.0);
+    final verticalInset = (media.height * .06).clamp(22.0, 50.0);
+
+    return Dialog(
+      elevation: 0,
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: horizontalInset,
+        vertical: verticalInset,
+      ),
+      backgroundColor: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 440,
+          maxHeight: media.height - (verticalInset * 2),
         ),
-        titleSubtitleWidget: const [
-          TitleSubtitleWidget(
-            title: 'Overview',
-            subTitle:
-                'This program is designed to help you manage attention through AI-driven exercises.',
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24 * scale),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .22),
+                blurRadius: 32,
+                offset: const Offset(0, 18),
+              ),
+            ],
           ),
-          TitleSubtitleWidget(
-            title: 'Purpose',
-            subTitle:
-                'You will engage in personalized tasks that adapt to your focus levels.',
-          ),
-        ],
-        textCardWidget: const [
-          TextCardWidget(
-            text: 'Interactive Tasks',
-            subTitle: 'Engage in various tasks designed to improve attention.',
-          ),
-          TextCardWidget(
-            text: 'Duration',
-            subTitle: 'The session will take approximately 10-20 minutes.',
-          ),
-          TextCardWidget(
-            text: 'Confidentiality',
-            subTitle: 'Data will be anonymized to protect your privacy.',
-          ),
-        ],
-        ontap: () {
-          Navigator.pop(dialogContext);
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const AttentionProgramOverviewScreen(),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              17 * scale,
+              18 * scale,
+              17 * scale,
+              18 * scale,
             ),
-          );
-        },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ManagementDialogHeader(scale: scale, onClose: widget.onClose),
+                SizedBox(height: 14 * scale),
+                Flexible(
+                  child: ScrollbarTheme(
+                    data: ScrollbarThemeData(
+                      thumbColor: WidgetStateProperty.all(
+                        const Color(0xFF8DBEFF),
+                      ),
+                      trackColor: WidgetStateProperty.all(
+                        const Color(0xFFEAF2FC),
+                      ),
+                      trackBorderColor: WidgetStateProperty.all(
+                        Colors.transparent,
+                      ),
+                    ),
+                    child: Scrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: true,
+                      trackVisibility: true,
+                      radius: const Radius.circular(20),
+                      thickness: (3.5 * scale).clamp(3, 4),
+                      interactive: true,
+                      child: SingleChildScrollView(
+                        controller: _scrollController,
+                        physics: const BouncingScrollPhysics(),
+                        padding: EdgeInsets.only(right: 10 * scale),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _ManagementHeroImage(scale: scale),
+                            SizedBox(height: 16 * scale),
+                            _InfoRow(
+                              icon: Icons.visibility_outlined,
+                              title: 'Overview',
+                              description:
+                                  'This program is designed to help you manage attention through AI-driven exercises.',
+                              scale: scale,
+                            ),
+                            _Divider(scale: scale),
+                            _InfoRow(
+                              icon: Icons.track_changes_rounded,
+                              title: 'Purpose',
+                              description:
+                                  'You will engage in personalized tasks that adapt to your focus levels.',
+                              scale: scale,
+                            ),
+                            SizedBox(height: 8 * scale),
+                            _CompactInfoRow(
+                              icon: Icons.assignment_outlined,
+                              label: 'Interactive Tasks',
+                              description:
+                                  'Engage in various tasks designed to improve attention.',
+                              scale: scale,
+                            ),
+                            _CompactInfoRow(
+                              icon: Icons.schedule_rounded,
+                              label: 'Duration',
+                              description:
+                                  'The session will take approximately 10-20 minutes.',
+                              scale: scale,
+                            ),
+                            _CompactInfoRow(
+                              icon: Icons.privacy_tip_outlined,
+                              label: 'Confidentiality',
+                              description:
+                                  'Data will be anonymized to protect your privacy.',
+                              scale: scale,
+                            ),
+                            SizedBox(height: 6 * scale),
+                            _PreparationCard(scale: scale),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 15 * scale),
+                _GetStartedButton(scale: scale, onTap: widget.onGetStarted),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ManagementDialogHeader extends StatelessWidget {
+  final double scale;
+  final VoidCallback onClose;
+
+  const _ManagementDialogHeader({required this.scale, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 38 * scale,
+          height: 38 * scale,
+          padding: EdgeInsets.all(6 * scale),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(11 * scale),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF158CFF), Color(0xFF0977F3)],
+            ),
+          ),
+          child: SvgPicture.asset(selfAssignmentIcon),
+        ),
+        SizedBox(width: 13 * scale),
+        Expanded(
+          child: Text(
+            'Attention Management using AI',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: _ManagementProgramDialog._navy,
+              fontSize: (18 * scale).clamp(14.5, 18),
+              fontFamily: 'Nunito Sans',
+              fontWeight: FontWeight.w700,
+              height: 1.14,
+            ),
+          ),
+        ),
+        SizedBox(width: 10 * scale),
+        Material(
+          color: const Color(0xFFF0F4F9),
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onClose,
+            child: SizedBox.square(
+              dimension: 38 * scale,
+              child: Icon(
+                Icons.close_rounded,
+                color: _ManagementProgramDialog._navy,
+                size: 25 * scale,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ManagementHeroImage extends StatelessWidget {
+  final double scale;
+
+  const _ManagementHeroImage({required this.scale});
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 2.38,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18 * scale),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: [0, .4, .61, 1],
+              colors: [
+                Color(0xFFFFBD24),
+                Color(0xFFFFFBF0),
+                Color(0xFFFFFFFF),
+                Color(0xFF147FFF),
+              ],
+            ),
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final height = constraints.maxHeight;
+
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    top: height * .15,
+                    left: width * .07,
+                    child: SvgPicture.asset(
+                      selfAssignmentLeftImage,
+                      width: width * .115,
+                    ),
+                  ),
+                  Positioned(
+                    top: -height * .12,
+                    left: width * .19,
+                    right: width * .19,
+                    bottom: -height * .09,
+                    child: SvgPicture.asset(
+                      selfAssignmentCenterImage,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  Positioned(
+                    top: height * .36,
+                    right: width * .09,
+                    child: SvgPicture.asset(
+                      selfAssignmentRightImage,
+                      width: width * .115,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+  final double scale;
+
+  const _InfoRow({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.scale,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 2 * scale),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _CircleIcon(icon: icon, scale: scale),
+          SizedBox(width: 14 * scale),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(top: 1 * scale),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: _ManagementProgramDialog._navy,
+                      fontSize: (16.2 * scale).clamp(13.5, 16.2),
+                      fontFamily: 'Nunito Sans',
+                      fontWeight: FontWeight.w700,
+                      height: 1.18,
+                    ),
+                  ),
+                  SizedBox(height: 6 * scale),
+                  Text(
+                    description,
+                    style: TextStyle(
+                      color: _ManagementProgramDialog._copy,
+                      fontSize: (13.4 * scale).clamp(11.8, 13.4),
+                      fontFamily: 'Nunito Sans',
+                      fontWeight: FontWeight.w500,
+                      height: 1.48,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactInfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String description;
+  final double scale;
+
+  const _CompactInfoRow({
+    required this.icon,
+    required this.label,
+    required this.description,
+    required this.scale,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 10 * scale),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _CircleIcon(icon: icon, scale: scale),
+          SizedBox(width: 14 * scale),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(top: 3 * scale),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE6F1FF),
+                      borderRadius: BorderRadius.circular(6 * scale),
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 7 * scale,
+                        vertical: 2.5 * scale,
+                      ),
+                      child: Text(
+                        '$label:',
+                        style: TextStyle(
+                          color: _ManagementProgramDialog._blue,
+                          fontSize: (11.8 * scale).clamp(10.4, 11.8),
+                          fontFamily: 'Nunito Sans',
+                          fontWeight: FontWeight.w700,
+                          height: 1.05,
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 7 * scale),
+                  Text(
+                    description,
+                    style: TextStyle(
+                      color: _ManagementProgramDialog._copy,
+                      fontSize: (13.1 * scale).clamp(11.7, 13.1),
+                      fontFamily: 'Nunito Sans',
+                      fontWeight: FontWeight.w500,
+                      height: 1.42,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CircleIcon extends StatelessWidget {
+  final IconData icon;
+  final double scale;
+
+  const _CircleIcon({required this.icon, required this.scale});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 44 * scale,
+      height: 44 * scale,
+      decoration: const BoxDecoration(
+        color: _ManagementProgramDialog._iconBg,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        icon,
+        color: _ManagementProgramDialog._blue,
+        size: 25 * scale,
+      ),
+    );
+  }
+}
+
+class _Divider extends StatelessWidget {
+  final double scale;
+
+  const _Divider({required this.scale});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(0, 11 * scale, 0, 12 * scale),
+      child: const Divider(height: 1, thickness: 1, color: Color(0xFFE8EEF6)),
+    );
+  }
+}
+
+class _PreparationCard extends StatelessWidget {
+  final double scale;
+
+  const _PreparationCard({required this.scale});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(
+        10 * scale,
+        12 * scale,
+        12 * scale,
+        12 * scale,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBF3),
+        borderRadius: BorderRadius.circular(10 * scale),
+        border: Border.all(color: const Color(0xFFFFD685)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44 * scale,
+            height: 44 * scale,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFF0CC),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.verified_user_outlined,
+              color: const Color(0xFFD99A00),
+              size: 25 * scale,
+            ),
+          ),
+          SizedBox(width: 12 * scale),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Preparation:',
+                  style: TextStyle(
+                    color: const Color(0xFFB47A00),
+                    fontSize: (13.1 * scale).clamp(11.7, 13.1),
+                    fontFamily: 'Nunito Sans',
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                  ),
+                ),
+                SizedBox(height: 5 * scale),
+                Text(
+                  'Choose a quiet, comfortable location free from distractions. Ensure you have a reliable smartphone with internet access.',
+                  style: TextStyle(
+                    color: _ManagementProgramDialog._copy,
+                    fontSize: (12.8 * scale).clamp(11.4, 12.8),
+                    fontFamily: 'Nunito Sans',
+                    fontWeight: FontWeight.w500,
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GetStartedButton extends StatelessWidget {
+  final double scale;
+  final VoidCallback onTap;
+
+  const _GetStartedButton({required this.scale, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _ManagementProgramDialog._blue,
+      borderRadius: BorderRadius.circular(11 * scale),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(11 * scale),
+        onTap: onTap,
+        child: SizedBox(
+          width: double.infinity,
+          height: (52 * scale).clamp(43, 50),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Get started',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: (17.2 * scale).clamp(14.8, 17.2),
+                  fontFamily: 'Nunito Sans',
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+              ),
+              SizedBox(width: 9 * scale),
+              Icon(
+                Icons.north_east_rounded,
+                color: Colors.white,
+                size: 23 * scale,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

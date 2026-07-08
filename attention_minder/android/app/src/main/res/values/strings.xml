@@ -2,9 +2,10 @@
 <resources>
     <string name="app_name">attention_minder</string>
 
-    <string name="facebook_app_id">1160977685845911</string>
+    <string name="facebook_app_id">1483185370250141</string>
+    <string name="fb_login_protocol_scheme">fb1483185370250141</string>
 
     <string name="facebook_client_token">
-        595086461108214659c3aff6404203ca
+        3b077a9e0155c3ecdc4281538054f75f
     </string>
 </resources>

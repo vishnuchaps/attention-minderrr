@@ -51,7 +51,8 @@ class ProgramData {
       completedDays: json['completedDays'] ?? 0,
       progress: (json['progress'] ?? 0.0).toDouble(),
       doctor: Doctor.fromJson(json['doctor'] ?? {}),
-      sessions: (json['sessions'] as List<dynamic>?)
+      sessions:
+          (json['sessions'] as List<dynamic>?)
               ?.map((e) => DailySession.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
@@ -74,26 +75,18 @@ class Doctor {
   final String specialty;
   final String? imageUrl;
 
-  Doctor({
-    required this.name,
-    required this.specialty,
-    this.imageUrl,
-  });
+  Doctor({required this.name, required this.specialty, this.imageUrl});
 
   factory Doctor.fromJson(Map<String, dynamic> json) {
     return Doctor(
-      name: json['name'] ?? 'Dr. Harry Simon',
-      specialty: json['specialty'] ?? 'ADHD / Attention Specialist',
+      name: json['name'] ?? '',
+      specialty: json['specialty'] ?? '',
       imageUrl: json['imageUrl'],
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'name': name,
-      'specialty': specialty,
-      'imageUrl': imageUrl,
-    };
+    return {'name': name, 'specialty': specialty, 'imageUrl': imageUrl};
   }
 }
 
@@ -118,7 +111,8 @@ class DailySession {
       title: json['title'] ?? '',
       duration: json['duration'] ?? '',
       isCompleted: json['isCompleted'] ?? false,
-      contents: (json['contents'] as List<dynamic>?)
+      contents:
+          (json['contents'] as List<dynamic>?)
               ?.map((e) => SessionContent.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
@@ -193,8 +187,10 @@ class AssessmentQuestionModel {
       message: json['message'] ?? '',
       questions: data != null && data['questions'] != null
           ? (data['questions'] as List<dynamic>)
-              .map((e) => AssessmentQuestion.fromJson(e as Map<String, dynamic>))
-              .toList()
+                .map(
+                  (e) => AssessmentQuestion.fromJson(e as Map<String, dynamic>),
+                )
+                .toList()
           : [],
     );
   }
@@ -204,9 +200,7 @@ class AssessmentQuestionModel {
       'status': status,
       'status_code': statusCode,
       'message': message,
-      'data': {
-        'questions': questions.map((e) => e.toJson()).toList(),
-      },
+      'data': {'questions': questions.map((e) => e.toJson()).toList()},
     };
   }
 }
@@ -231,11 +225,7 @@ class AssessmentQuestion {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'question_text': questionText,
-      'category': category,
-    };
+    return {'id': id, 'question_text': questionText, 'category': category};
   }
 
   // Default rating scale options for all questions
@@ -244,6 +234,6 @@ class AssessmentQuestion {
     'Rarely',
     'Sometimes',
     'Often',
-    'Always'
+    'Always',
   ];
 }

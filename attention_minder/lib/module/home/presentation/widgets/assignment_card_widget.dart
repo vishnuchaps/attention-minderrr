@@ -1,5 +1,4 @@
 import 'package:attention_minder/constant/asset_path.dart';
-import 'package:attention_minder/Config/widgets/user_profile_avatar_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 
@@ -47,16 +46,23 @@ class AssignmentCardWidget extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const UserProfileAvatar(fit: BoxFit.fill),
-                    const SizedBox(width: 5),
-                    const Text(
-                      'Dr. Harry Simon',
+                    const Icon(
+                      Icons.verified_user_outlined,
+                      color: Color(0xFF0F7FFF),
+                      size: 12,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Evidence-based',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: Colors.black,
-                        fontSize: 8,
+                        fontSize: 9,
                         fontFamily: 'Nunito Sans',
-                        fontWeight: FontWeight.w400,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],

@@ -525,6 +525,48 @@ class _ProgramCards extends StatelessWidget {
   }
 }
 
+class _ProgramTrustBadge extends StatelessWidget {
+  final _HomeMetrics metrics;
+
+  const _ProgramTrustBadge({required this.metrics});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: metrics.s(9),
+        vertical: metrics.v(6),
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .62),
+        borderRadius: BorderRadius.circular(metrics.s(18)),
+        border: Border.all(color: const Color(0xFFD9E7FA)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.verified_user_outlined,
+            color: const Color(0xFF0A84FF),
+            size: metrics.s(15),
+          ),
+          SizedBox(width: metrics.s(5)),
+          Text(
+            'Evidence-based',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: const Color(0xFF07123A),
+              fontSize: metrics.font(11.2),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ProgramCard extends StatelessWidget {
   final _HomeMetrics metrics;
   final double height;
@@ -575,30 +617,7 @@ class _ProgramCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      UserProfileAvatar(size: metrics.s(40), borderWidth: 2),
-                      SizedBox(width: metrics.s(8)),
-                      Flexible(
-                        child: Text(
-                          'Dr. Harry Simon',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: const Color(0xFF07123A),
-                            fontSize: metrics.font(12),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: metrics.s(5)),
-                      Icon(
-                        Icons.verified_rounded,
-                        color: const Color(0xFF0A84FF),
-                        size: metrics.s(16),
-                      ),
-                    ],
-                  ),
+                  _ProgramTrustBadge(metrics: metrics),
                   SizedBox(height: metrics.v(metrics.compact ? 18 : 22)),
                   Text(
                     title,
@@ -729,7 +748,10 @@ class _DecorativePuzzle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Transform.rotate(
       angle: 0,
-      child: SvgPicture.asset(svg, color: color),
+      child: SvgPicture.asset(
+        svg,
+        colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      ),
     );
   }
 }
