@@ -1,9 +1,13 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:attention_minder/module/assigment/presentation/bloc/assignment_bloc.dart';
 import 'package:attention_minder/module/attention_management/presentation/bloc/attention_management_bloc.dart';
+import 'package:attention_minder/module/attention_management/presentation/bloc/ai_assessment_score_bloc.dart';
 import 'package:attention_minder/module/file_handler/presentation/bloc/file_handler_bloc.dart';
 import 'package:attention_minder/module/home/presentation/bloc/progress_bloc.dart';
+import 'package:attention_minder/module/payments/presentation/screens/payment_result_screen.dart';
 import 'package:attention_minder/module/splash/presentation/screens/splash_screen.dart';
-import 'package:attention_minder/service/treatment_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -12,10 +16,10 @@ import 'Config/widgets/user_profile_avatar_widget.dart';
 import 'dependency_injection/injection_container.dart';
 import 'module/authentication/presentation/bloc/authentication_bloc.dart';
 import 'module/profile/presentation/bloc/profile_bloc.dart';
-import 'module/result/presentation/screens/single_result_screen.dart'
-    show SingleResultScreen;
 
 import 'firebase_options.dart';
+
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,16 +30,123 @@ void main() async {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final AppLinks _appLinks = AppLinks();
+  StreamSubscription<Uri>? _linkSubscription;
+  String? _lastHandledLink;
+
+  @override
+  void initState() {
+    super.initState();
+    _initPaymentLinks();
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initPaymentLinks() async {
+    _linkSubscription = _appLinks.uriLinkStream.listen(_handleIncomingLink);
+
+    try {
+      final initialLink = await _appLinks.getInitialLink();
+      if (initialLink != null) {
+        _handleIncomingLink(initialLink, waitForSplash: true);
+      }
+    } catch (_) {
+      // Deep-link startup should never block the normal app launch.
+    }
+  }
+
+  void _handleIncomingLink(Uri uri, {bool waitForSplash = false}) {
+    final status = _paymentStatusFromUri(uri);
+    if (status == null) {
+      return;
+    }
+
+    final linkKey = uri.toString();
+    if (_lastHandledLink == linkKey) {
+      return;
+    }
+    _lastHandledLink = linkKey;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (waitForSplash) {
+        await Future<void>.delayed(const Duration(milliseconds: 2300));
+      }
+
+      final navigator = appNavigatorKey.currentState;
+      if (navigator == null) {
+        return;
+      }
+
+      navigator.push(
+        MaterialPageRoute(builder: (_) => PaymentResultScreen(status: status)),
+      );
+    });
+  }
+
+  PaymentResultStatus? _paymentStatusFromUri(Uri uri) {
+    if (_isAppPaymentUri(uri)) {
+      return _statusFromPath(uri.path);
+    }
+
+    if (_isBackendPaymentUri(uri)) {
+      return _statusFromPath(uri.path);
+    }
+
+    return null;
+  }
+
+  bool _isAppPaymentUri(Uri uri) {
+    if (uri.scheme != 'attentionminder') {
+      return false;
+    }
+
+    return uri.host == 'payment' || uri.host == 'payments';
+  }
+
+  bool _isBackendPaymentUri(Uri uri) {
+    final isHttp = uri.scheme == 'http' || uri.scheme == 'https';
+    if (!isHttp || uri.host != '13.217.234.177') {
+      return false;
+    }
+
+    return uri.path.startsWith('/payment/success') ||
+        uri.path.startsWith('/payment/cancel');
+  }
+
+  PaymentResultStatus? _statusFromPath(String path) {
+    final normalizedPath = path.toLowerCase();
+    if (normalizedPath.contains('success')) {
+      return PaymentResultStatus.success;
+    }
+    if (normalizedPath.contains('cancel') ||
+        normalizedPath.contains('failed') ||
+        normalizedPath.contains('failure')) {
+      return PaymentResultStatus.failed;
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
     final AuthenticationBloc authenticationBloc = getIt<AuthenticationBloc>();
     final ProfileBloc profileBloc = getIt<ProfileBloc>();
     final AssignmentBloc assignmentBloc = getIt<AssignmentBloc>();
-    final AttentionManagementBloc attentionManagementBloc = 
+    final AttentionManagementBloc attentionManagementBloc =
         getIt<AttentionManagementBloc>();
+    final AiAssessmentScoreBloc aiAssessmentScoreBloc =
+        getIt<AiAssessmentScoreBloc>();
     final FileHandlerBloc fileHandlerBloc = getIt<FileHandlerBloc>();
     final ProgressBloc progressBloc = getIt<ProgressBloc>();
 
@@ -45,11 +156,13 @@ class MyApp extends StatelessWidget {
         BlocProvider(create: (BuildContext context) => profileBloc),
         BlocProvider(create: (BuildContext context) => assignmentBloc),
         BlocProvider(create: (BuildContext context) => attentionManagementBloc),
+        BlocProvider(create: (BuildContext context) => aiAssessmentScoreBloc),
         BlocProvider(create: (BuildContext context) => fileHandlerBloc),
         BlocProvider(create: (BuildContext context) => fileHandlerBloc),
         BlocProvider(create: (BuildContext context) => progressBloc),
       ],
       child: MaterialApp(
+        navigatorKey: appNavigatorKey,
         theme: AppTheme.lightTheme,
         debugShowCheckedModeBanner: false,
         home: const SplashScreen(),
@@ -87,7 +200,7 @@ class AttentionProgramScreen extends StatelessWidget {
             height: 40,
             width: 40,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(.1),
+              color: Colors.white.withValues(alpha: .1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Icon(Icons.arrow_back, color: Colors.white),

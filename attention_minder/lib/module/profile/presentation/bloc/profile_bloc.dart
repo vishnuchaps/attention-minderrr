@@ -10,8 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 part 'profile_event.dart';
 part 'profile_state.dart';
-
-@injectable
+  
+@injectable   
 class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
   final IProfileRepository _profileRepository;
   UserData? _profile;

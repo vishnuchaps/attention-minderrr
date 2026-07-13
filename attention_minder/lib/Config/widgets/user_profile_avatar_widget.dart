@@ -1,4 +1,5 @@
 import 'package:attention_minder/module/profile/presentation/bloc/profile_bloc.dart';
+import 'package:attention_minder/module/profile/presentation/screens/profile_screen.dart';
 import 'package:attention_minder/constant/app_constant.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -109,11 +110,23 @@ class _UserProfileAvatarState extends State<UserProfileAvatar> {
           ),
         );
 
-        if (widget.onTap == null) return avatar;
-
-        return GestureDetector(onTap: widget.onTap, child: avatar);
+        return Semantics(
+          button: true,
+          label: 'Open profile',
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap ?? () => _openProfile(context),
+            child: avatar,
+          ),
+        );
       },
     );
+  }
+
+  void _openProfile(BuildContext context) {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => ProfileScreen()));
   }
 
   String? _resolveProfileImageUrl(BuildContext context, ProfileState state) {

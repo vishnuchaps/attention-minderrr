@@ -13,3 +13,4 @@ class UpdateProfilePictureEvent extends ProfileEvent {
   final FormData formData;
   UpdateProfilePictureEvent(this.formData);
 }
+ 

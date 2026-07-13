@@ -1,11 +1,10 @@
 import 'dart:io';
 
 import 'package:attention_minder/Config/widgets/user_profile_avatar_widget.dart';
-import 'package:attention_minder/module/attention_management/presentation/screens/attention_video_monitoring_screen.dart';
-import 'package:attention_minder/module/attention_management/presentation/screens/pdf_treatment_screen.dart';
-import 'package:attention_minder/module/attention_management/presentation/screens/video_treatment_screen.dart';
+import 'package:attention_minder/module/attention_management/presentation/screens/hybrid_video_treatment_screen.dart';
 import 'package:attention_minder/module/file_handler/data/model/video_file_model.dart';
 import 'package:attention_minder/module/file_handler/presentation/bloc/file_handler_bloc.dart';
+import 'package:attention_minder/module/payments/presentation/screens/payment_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -96,7 +95,7 @@ class _AttentionProgramOverviewScreenState
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => PdfTreatmentScreen(
+            builder: (context) => buildPdfTreatmentScreen(
               day: selectedDay,
               fileData: file,
               localPath: f.path,
@@ -325,11 +324,14 @@ class _AttentionProgramOverviewScreenState
 
               return GestureDetector(
                 onTap: () {
-                  if (!isLocked) {
-                    setState(() {
-                      selectedDay = day;
-                    });
+                  if (isLocked) {
+                    _openPaymentScreen(day: day);
+                    return;
                   }
+
+                  setState(() {
+                    selectedDay = day;
+                  });
                 },
                 child: _dayCard(
                   day,
@@ -454,14 +456,21 @@ class _AttentionProgramOverviewScreenState
             locked: locked,
             isPdf: isPdf,
             onTap: () {
+              if (locked) {
+                _openPaymentScreen(day: file.day);
+                return;
+              }
+
               if (isPdf) {
                 _openPdf(context, file);
               } else {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) =>
-                        VideoTreatmentScreen(day: selectedDay, videos: [file]),
+                    builder: (context) => buildVideoTreatmentScreen(
+                      day: selectedDay,
+                      videos: [file],
+                    ),
                   ),
                 );
               }
@@ -599,6 +608,13 @@ class _AttentionProgramOverviewScreenState
     );
   }
 
+  void _openPaymentScreen({int? day}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => PaymentScreen(lockedDay: day)),
+    );
+  }
+
   Widget _lessonThumbnail({
     required VideoFile file,
     required bool isPdf,
@@ -675,13 +691,13 @@ class _AttentionProgramOverviewScreenState
           background: const Color(0xFFF1FAED),
           onTap: canStart
               ? () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          AttentionVideoMonitoringScreen(day: selectedDay),
-                    ),
-                  );
+                  // Navigator.push(
+                  //   context,
+                  //   MaterialPageRoute(
+                  //     builder: (context) =>
+                  //         AttentionVideoMonitoringScreen(day: selectedDay),
+                  //   ),
+                  // );
                 }
               : null,
         ),

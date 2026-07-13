@@ -1,8 +1,7 @@
 import 'package:attention_minder/Config/widgets/user_profile_avatar_widget.dart';
-import 'package:attention_minder/module/attention_management/presentation/screens/video_treatment_screen.dart';
+import 'package:attention_minder/module/attention_management/presentation/screens/hybrid_video_treatment_screen.dart';
 import 'package:attention_minder/module/file_handler/data/model/video_file_model.dart';
 import 'package:attention_minder/module/file_handler/presentation/bloc/file_handler_bloc.dart';
-import 'package:attention_minder/module/attention_management/presentation/screens/pdf_treatment_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -222,7 +221,7 @@ class _AttentionProgramScreenState extends State<AttentionProgramScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => VideoTreatmentScreen(
+              builder: (context) => buildVideoTreatmentScreen(
                 day: _selectedDay,
                 videos: [
                   file,
@@ -279,7 +278,7 @@ class _AttentionProgramScreenState extends State<AttentionProgramScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => PdfTreatmentScreen(
+            builder: (context) => buildPdfTreatmentScreen(
               day: _selectedDay,
               fileData: file,
               localPath: f.path,

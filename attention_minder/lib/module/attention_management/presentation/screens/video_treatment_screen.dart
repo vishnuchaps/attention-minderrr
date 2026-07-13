@@ -1,26 +1,32 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:attention_minder/constant/app_constant.dart';
+import 'dart:io';
+import 'package:attention_minder/module/attention_management/data/model/ai_assessment_score_request.dart';
+import 'package:attention_minder/module/attention_management/presentation/bloc/ai_assessment_score_bloc.dart';
+import 'package:attention_minder/module/attention_management/presentation/screens/video_attention_monitor.dart';
 import 'package:attention_minder/module/file_handler/data/model/video_file_model.dart';
 import 'package:attention_minder/service/notification_service.dart';
+import 'package:attention_minder/service/camera_frame_encoder.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:video_player/video_player.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 
 class VideoTreatmentScreen extends StatefulWidget {
   final int day;
   final List<VideoFile> videos;
   final bool isAssessment;
+  final VideoAttentionMonitor? attentionMonitor;
 
   const VideoTreatmentScreen({
     super.key,
     required this.day,
     required this.videos,
     this.isAssessment = false,
+    this.attentionMonitor,
   });
 
   @override
@@ -30,7 +36,6 @@ class VideoTreatmentScreen extends StatefulWidget {
 class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
   VideoPlayerController? _videoController;
   CameraController? _cameraController;
-  WebSocketChannel? _channel;
   NotificationService? _notificationService;
   late FaceDetector _faceDetector;
   int _currentVideoIndex = 0;
@@ -40,7 +45,6 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
   bool _attentionDetected = true;
   bool _isSendingFrame = false;
   bool _isHandlingVideoComplete = false;
-  bool _isWaitingForEndcallResult = false;
   Timer? _frameTimer;
   Timer? _sessionTimer;
 
@@ -54,6 +58,8 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
   String _lastFeedback = '';
   List<String> _lastRecommendations = [];
   bool _isShowingAlert = false;
+  bool _isShowingCameraError = false;
+  AttentionSessionMetrics? _completedSessionMetrics;
 
   // Message history for session summary
   List<Map<String, dynamic>> _validationHistory = [];
@@ -61,13 +67,18 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
   int _consecutiveGoodFrames = 0;
   int _consecutiveBadFrames = 0;
   static const int _badFrameThreshold = 5;
+  // ignore: unused_field
   int _sameWarningReasonCount = 0;
+  // ignore: unused_field
   String? _lastWarningReason;
   bool _wasInAlert = false;
 
   // Latest validation state
   Map<String, dynamic>? _latestValidationResult;
-  Map<String, dynamic>? _latestEndcallProcessedResult;
+  // Dialog routes do not rebuild when only the page behind them calls
+  // setState. Notify the attention dialog directly whenever a fresh camera
+  // result arrives so its readiness UI always reflects the latest frame.
+  final ValueNotifier<int> _validationRevision = ValueNotifier<int>(0);
   String? _latestSentFrameId;
   int? _latestProcessedFrameOrder;
 
@@ -139,7 +150,11 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        print('No cameras available');
+        await _handleCameraInitializationFailure(
+          'No camera is available on this iOS destination. The iOS Simulator '
+          'does not provide a usable front camera for this attention session. '
+          'Please run the app on a physical iPhone.',
+        );
         return;
       }
 
@@ -152,6 +167,9 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
         frontCamera,
         ResolutionPreset.medium,
         enableAudio: false,
+        imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS
+            ? ImageFormatGroup.bgra8888
+            : ImageFormatGroup.nv21,
       );
 
       await _cameraController!.initialize();
@@ -166,8 +184,66 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
       });
 
       _startAIMonitoring();
-    } catch (e) {
-      print('Error initializing camera: $e');
+    } on CameraException catch (error) {
+      final message = switch (error.code) {
+        'CameraAccessDenied' || 'CameraAccessDeniedWithoutPrompt' =>
+          'Camera access is disabled. Open iPhone Settings, select Attention '
+              'Minder, enable Camera, and then retry.',
+        'CameraAccessRestricted' =>
+          'Camera access is restricted on this iPhone. Check Screen Time or '
+              'device-management restrictions before retrying.',
+        _ =>
+          'The camera could not be started (${error.code}). '
+              'Please close other apps using the camera and retry.',
+      };
+      debugPrint(
+        'Camera initialization failed: ${error.code} ${error.description}',
+      );
+      await _handleCameraInitializationFailure(message);
+    } catch (error) {
+      debugPrint('Unexpected camera initialization failure: $error');
+      await _handleCameraInitializationFailure(
+        'The camera could not be started. Please retry on a physical iPhone.',
+      );
+    }
+  }
+
+  Future<void> _handleCameraInitializationFailure(String message) async {
+    _videoController?.pause();
+    if (!mounted || _isShowingCameraError) return;
+
+    setState(() {
+      _isCameraInitialized = false;
+      _isAIMonitoringActive = false;
+      _isShowingCameraError = true;
+    });
+
+    final shouldRetry = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Camera unavailable'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Go back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+
+    if (mounted) {
+      setState(() => _isShowingCameraError = false);
+      if (shouldRetry == true) {
+        await _initializeCamera();
+      } else if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
     }
   }
 
@@ -178,50 +254,46 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
     }
 
     try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      if (!mounted) return;
-
-      String? accessToken = prefs.getString('accessToken');
-      final uri = Uri.parse(
-        wsFaceDetectionUrl,
-      ).replace(queryParameters: {'token': accessToken});
-
-      print("Vishnu Connecting to WebSocket...");
-      _channel = WebSocketChannel.connect(uri);
-      print("Vishnu WebSocket connected to $wsFaceDetectionUrl");
-
-      _channel!.stream.listen(
-        (message) {
-          print("Vishnu Received from socket:");
-          _handleWebSocketMessage(message);
-        },
-        onError: (error) {
-          print('WebSocket error: $error');
-          _showError('Connection lost. Retrying...');
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted && _isAIMonitoringActive) {
-              _startAIMonitoring();
-            }
-          });
-        },
-        onDone: () {
-          print('WebSocket connection closed');
-        },
+      final localMonitor = widget.attentionMonitor;
+      if (localMonitor == null) {
+        throw StateError(
+          'An on-device attention monitor is required. WebSocket detection '
+          'has been disabled.',
+        );
+      }
+      await localMonitor.start(
+        send: (_) {},
+        day: widget.day,
+        isAssessment: widget.isAssessment,
       );
-
-      _frameTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
-        _sendCameraFrame();
-      });
-
-      setState(() {
-        _isAIMonitoringActive = true;
-      });
-
-      _videoController?.play();
+      await _activateFrameMonitoring();
     } catch (e) {
       print('Error starting AI monitoring: $e');
       _showError('Failed to start AI monitoring');
     }
+  }
+
+  Future<void> _activateFrameMonitoring() async {
+    _frameTimer?.cancel();
+    if (_cameraController?.value.isStreamingImages != true) {
+      await _cameraController?.startImageStream(_onCameraFrame);
+    }
+
+    if (mounted) {
+      setState(() {
+        _isAIMonitoringActive = true;
+      });
+    }
+    _videoController?.play();
+  }
+
+  DateTime _nextFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _onCameraFrame(CameraImage frame) {
+    final now = DateTime.now();
+    if (_isSendingFrame || now.isBefore(_nextFrameAt)) return;
+    _nextFrameAt = now.add(const Duration(milliseconds: 500));
+    _sendCameraFrame(frame);
   }
 
   void printLongLog(String title, String text) {
@@ -254,6 +326,8 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
     return timestamp * 1000 + sequence;
   }
 
+  // Kept for the previous repeated-warning management alert logic.
+  // ignore: unused_element
   int _warningThresholdForReason(String reason) {
     switch (reason.toLowerCase().trim()) {
       case 'eyes_closed':
@@ -292,17 +366,36 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
     }
   }
 
-  Future<void> _sendCameraFrame() async {
+  Future<void> _sendCameraFrame(CameraImage frame) async {
     if (_isSendingFrame) return;
 
     _isSendingFrame = true;
+    XFile? image;
 
     try {
       if (_cameraController == null ||
           !_cameraController!.value.isInitialized) {
         return;
       }
-      final image = await _cameraController!.takePicture();
+      image = await CameraFrameEncoder.encode(
+        frame,
+        rotationDegrees: CameraFrameEncoder.rotationForCamera(
+          camera: _cameraController!.description,
+          deviceOrientation: _cameraController!.value.deviceOrientation,
+          isIOS: defaultTargetPlatform == TargetPlatform.iOS,
+        ),
+      );
+
+      if (widget.attentionMonitor case final monitor?) {
+        final result = await monitor.analyze(
+          image: image,
+          videoPosition: _videoController?.value.position ?? Duration.zero,
+        );
+        _handleWebSocketMessage(
+          jsonEncode({'type': 'validation_result', 'result': result}),
+        );
+        return;
+      }
 
       final inputImage = InputImage.fromFilePath(image.path);
       final faces = await _faceDetector.processImage(inputImage);
@@ -313,6 +406,7 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
       final decodedImage = await decodeImageFromList(bytes);
       final frameWidth = decodedImage.width;
       final frameHeight = decodedImage.height;
+      decodedImage.dispose();
       final frameId =
           'frame-${DateTime.now().millisecondsSinceEpoch}-${_validationHistory.length + 1}';
       final timestampSeconds =
@@ -347,7 +441,6 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
           }),
         );
 
-        _channel?.sink.add(jsonEncode(message));
         return;
       }
       final face = faces.first;
@@ -398,11 +491,12 @@ Same frame confirmation : YES
 Reason                  : ML Kit face detection and base64 are both created from same image.path
 ========================================
 ''');
-
-      _channel?.sink.add(jsonEncode(message));
     } catch (e) {
       print('Error sending frame: $e');
     } finally {
+      try {
+        if (image != null) await File(image.path).delete();
+      } catch (_) {}
       _isSendingFrame = false;
     }
   }
@@ -429,11 +523,6 @@ Reason                  : ML Kit face detection and base64 are both created from
 
       if (data['type'] == 'connection_established' || data['type'] == 'error') {
         print('WebSocket status: ${data['message']}');
-        return;
-      }
-
-      if (data['type'] == 'endcall_processed') {
-        _handleEndcallProcessed(data);
         return;
       }
 
@@ -536,31 +625,33 @@ face_height             : ${facePos?['client_height']}
         });
 
         _latestValidationResult = result;
+        _validationRevision.value++;
 
         final bool faceDetected = result['face_detected'] == true;
-        final bool validationPassed = result['validation_passed'] == true;
         final int concentrationScore = result['concentration_score'] ?? 0;
         final String message = result['message'] ?? '';
         final bool lowLight = analysis?['low_light'] == true;
-        final bool notDrowsy = analysis?['not_drowsy'] != false;
-        final bool yawning = analysis?['yawning'] == true;
-        final bool eyesClosed = analysis?['eyes_closed'] == true;
 
-        final bool videoAttentive = engagement?['video_attentive'] == true;
-        final String engagementState = engagement?['state'] ?? '';
         final double inattentionDuration =
             (engagement?['inattention_duration'] ?? 0).toDouble();
 
-        final uiFlags = result['ui_flags'] as Map<String, dynamic>?;
-        final bool shouldShowAlert = uiFlags?['should_show_alert'] == true;
         final uiMessage = result['ui_message'] as Map<String, dynamic>?;
         final String uiMessageSeverity =
             uiMessage?['severity']?.toString().toLowerCase().trim() ?? '';
         final String uiAlertMessage =
             uiMessage?['message']?.toString().trim() ?? '';
+        final bool hasUiWarning = uiMessageSeverity == 'warning';
+
+        /*
+        Previous management alert gating:
+
+        final bool validationPassed = result['validation_passed'] == true;
+        final bool videoAttentive = engagement?['video_attentive'] == true;
+        final String engagementState = engagement?['state'] ?? '';
+        final uiFlags = result['ui_flags'] as Map<String, dynamic>?;
+        final bool shouldShowAlert = uiFlags?['should_show_alert'] == true;
         final String uiWarningReason =
             uiMessage?['reason']?.toString().toLowerCase().trim() ?? '';
-        final bool hasUiWarning = uiMessageSeverity == 'warning';
         final bool backendAlertCandidate = shouldShowAlert && hasUiWarning;
         final String warningReason = uiWarningReason.isNotEmpty
             ? uiWarningReason
@@ -568,6 +659,7 @@ face_height             : ${facePos?['client_height']}
             ? 'generic_warning'
             : '';
         final int warningThreshold = _warningThresholdForReason(warningReason);
+        */
 
         final List<String> recommendations =
             (result['recommendations'] as List<dynamic>?)
@@ -583,18 +675,8 @@ face_height             : ${facePos?['client_height']}
         }
 
         final bool isAttentionGood = widget.isAssessment
-            ? faceDetected && !lowLight && notDrowsy && !yawning && !eyesClosed
-            : faceDetected &&
-                  validationPassed &&
-                  videoAttentive &&
-                  !lowLight &&
-                  notDrowsy &&
-                  !yawning &&
-                  !eyesClosed &&
-                  concentrationScore >= 7 &&
-                  engagementState == 'watching_video' &&
-                  !shouldShowAlert &&
-                  !hasUiWarning;
+            ? faceDetected && !lowLight
+            : !hasUiWarning;
 
         if (isAttentionGood && !_isShowingAlert) {
           _consecutiveGoodFrames++;
@@ -614,7 +696,12 @@ face_height             : ${facePos?['client_height']}
           if (!_isShowingAlert) {
             if (widget.isAssessment) {
               _consecutiveBadFrames++;
-            } else if (backendAlertCandidate) {
+            }
+
+            /*
+            Previous management repeated-warning threshold logic:
+
+            else if (backendAlertCandidate) {
               if (_lastWarningReason == warningReason) {
                 _sameWarningReasonCount++;
               } else {
@@ -625,6 +712,7 @@ face_height             : ${facePos?['client_height']}
               _sameWarningReasonCount = 0;
               _lastWarningReason = null;
             }
+            */
           }
         }
 
@@ -647,33 +735,32 @@ face_height             : ${facePos?['client_height']}
         });
 
         if (_isShowingAlert) return;
-        if (isAttentionGood) return;
 
-        if (widget.isAssessment && _consecutiveBadFrames < _badFrameThreshold) {
-          print(
-            'Bad frame ignored. Count: $_consecutiveBadFrames / $_badFrameThreshold',
-          );
-          return;
-        }
+        if (widget.isAssessment) {
+          if (isAttentionGood) return;
 
-        if (!widget.isAssessment) {
-          if (!backendAlertCandidate) return;
-
-          if (_sameWarningReasonCount < warningThreshold) {
+          if (_consecutiveBadFrames < _badFrameThreshold) {
             print(
-              'Warning ignored. Reason: $warningReason Count: $_sameWarningReasonCount / $warningThreshold',
+              'Bad frame ignored. Count: $_consecutiveBadFrames / $_badFrameThreshold',
             );
             return;
           }
+
+          final now = DateTime.now();
+          if (_lastAlertTime != null &&
+              now.difference(_lastAlertTime!).inSeconds < 5) {
+            return;
+          }
         }
-        final now = DateTime.now();
-        if (_lastAlertTime != null &&
-            now.difference(_lastAlertTime!).inSeconds < 5) {
+
+        if (!widget.isAssessment && !hasUiWarning) {
           return;
         }
+
         bool shouldPause = false;
         String alertMessage = '';
         List<String> alertRecommendations = recommendations;
+        final now = DateTime.now();
 
         if (widget.isAssessment) {
           if (lowLight) {
@@ -687,28 +774,14 @@ face_height             : ${facePos?['client_height']}
             alertRecommendations = [
               'Position your face clearly in front of the camera.',
             ];
-          } else if (eyesClosed) {
-            shouldPause = true;
-            alertMessage =
-                'Eyes closed detected. Please open your eyes and focus on the video.';
-          } else if (yawning) {
-            shouldPause = true;
-            alertMessage =
-                'Yawning detected. Please take a short break and refocus.';
-          } else if (!notDrowsy) {
-            shouldPause = true;
-            alertMessage =
-                'You appear drowsy. Please take a short break and refocus.';
           }
         } else {
-          if (backendAlertCandidate) {
-            shouldPause = true;
-            alertMessage = uiAlertMessage.isNotEmpty
-                ? uiAlertMessage
-                : message.isNotEmpty
-                ? message
-                : 'Please refocus on the treatment.';
-          }
+          shouldPause = true;
+          alertMessage = uiAlertMessage.isNotEmpty
+              ? uiAlertMessage
+              : message.isNotEmpty
+              ? message
+              : 'Please refocus on the treatment.';
 
           /*
           Previous non-assessment alert logic:
@@ -756,8 +829,15 @@ face_height             : ${facePos?['client_height']}
           */
         }
 
-        if (shouldPause && _videoController?.value.isPlaying == true) {
-          _videoController?.pause();
+        if (shouldPause && mounted && _isAIMonitoringActive) {
+          // Warning delivery must not depend on video_player's transient
+          // isPlaying value. AVPlayer reports false while buffering or
+          // transitioning, which previously caused confirmed iOS warnings to
+          // be silently discarded. Pause if necessary, then always show the
+          // confirmed alert for an active monitoring session.
+          if (_videoController?.value.isPlaying == true) {
+            _videoController?.pause();
+          }
           _pauseCount++;
           _totalAlerts++;
           _lastAlertTime = now;
@@ -771,46 +851,29 @@ face_height             : ${facePos?['client_height']}
     }
   }
 
+  bool _hasUiWarning(Map<String, dynamic>? result) {
+    final uiMessage = result?['ui_message'] as Map<String, dynamic>?;
+    final severity =
+        uiMessage?['severity']?.toString().toLowerCase().trim() ?? '';
+
+    return severity == 'warning';
+  }
+
   bool _verifyUserReady() {
     if (_latestValidationResult == null) return false;
 
     final result = _latestValidationResult!;
-    final bool faceDetected = result['face_detected'] == true;
-    final bool validationPassed = result['validation_passed'] == true;
-    final int concentrationScore = result['concentration_score'] ?? 0;
-    final analysis = result['analysis'] as Map<String, dynamic>?;
-    final bool lowLight = analysis?['low_light'] == true;
-    final bool notDrowsy = analysis?['not_drowsy'] != false;
-    final bool yawning = analysis?['yawning'] == true;
-    final bool eyesClosed = analysis?['eyes_closed'] == true;
 
-    if (widget.isAssessment) {
-      return faceDetected && !lowLight && notDrowsy && !yawning && !eyesClosed;
+    if (!widget.isAssessment) {
+      final currentFrameReady = result['ready_to_continue'];
+      if (currentFrameReady is bool) return currentFrameReady;
+      return !_hasUiWarning(result);
     }
 
-    final engagement = result['engagement'] as Map<String, dynamic>?;
-    final bool videoAttentive = engagement?['video_attentive'] == true;
-    final String engagementState = engagement?['state'] ?? '';
-    final uiFlags = result['ui_flags'] as Map<String, dynamic>?;
-    final bool shouldShowAlert = uiFlags?['should_show_alert'] == true;
-    final uiMessage = result['ui_message'] as Map<String, dynamic>?;
-    final String uiMessageSeverity =
-        uiMessage?['severity']?.toString().toLowerCase().trim() ?? '';
-
-    final bool isReady =
-        faceDetected &&
-        validationPassed &&
-        !lowLight &&
-        notDrowsy &&
-        !yawning &&
-        !eyesClosed &&
-        concentrationScore >= 7 &&
-        videoAttentive &&
-        engagementState == 'watching_video' &&
-        !shouldShowAlert &&
-        uiMessageSeverity != 'warning';
-
-    return isReady;
+    final bool faceDetected = result['face_detected'] == true;
+    final analysis = result['analysis'] as Map<String, dynamic>?;
+    final bool lowLight = analysis?['low_light'] == true;
+    return faceDetected && !lowLight;
   }
 
   void _showAttentionAlert(String message, List<String> recommendations) async {
@@ -831,14 +894,9 @@ face_height             : ${facePos?['client_height']}
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted && _isShowingAlert) {
-              setDialogState(() {});
-            }
-          });
-
+      builder: (context) => ValueListenableBuilder<int>(
+        valueListenable: _validationRevision,
+        builder: (context, revision, child) {
           return PopScope(
             canPop: false,
             child: _buildAttentionAlertDialog(
@@ -971,7 +1029,9 @@ face_height             : ${facePos?['client_height']}
                 ElevatedButton(
                   onPressed: () => _handleAttentionAlertResumePressed(context),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1599E8),
+                    backgroundColor: isReady
+                        ? const Color(0xFF43E267)
+                        : const Color(0xFF4B535A),
                     foregroundColor: Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(vertical: 15),
@@ -979,9 +1039,14 @@ face_height             : ${facePos?['client_height']}
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  child: const Text(
-                    'I\'m Ready - Resume Video',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  child: Text(
+                    isReady
+                        ? 'Continue Video'
+                        : 'Correct Your Focus to Continue',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -995,15 +1060,13 @@ face_height             : ${facePos?['client_height']}
   Widget _buildAlertCameraPanel({required bool isReady}) {
     final latestResult = _latestValidationResult;
     final analysis = latestResult?['analysis'] as Map<String, dynamic>?;
-    final engagement = latestResult?['engagement'] as Map<String, dynamic>?;
     final faceDetected = latestResult?['face_detected'] == true;
-    final validationPassed = latestResult?['validation_passed'] == true;
-    final frameOk = widget.isAssessment ? faceDetected : validationPassed;
+    final statusOk = widget.isAssessment ? isReady : isReady;
+    final faceOk = widget.isAssessment ? faceDetected : statusOk;
+    final frameOk = widget.isAssessment ? faceDetected : statusOk;
     final eyesOpen = analysis?['eyes_closed'] != true;
     final lightingOk = analysis?['low_light'] != true;
-    final attentive = widget.isAssessment
-        ? isReady
-        : engagement?['video_attentive'] == true;
+    final attentive = widget.isAssessment ? isReady : statusOk;
 
     return Container(
       decoration: BoxDecoration(
@@ -1069,10 +1132,16 @@ face_height             : ${facePos?['client_height']}
                   runSpacing: 8,
                   alignment: WrapAlignment.center,
                   children: [
-                    _buildCameraStatusChip('Face', faceDetected),
+                    _buildCameraStatusChip('Face', faceOk),
                     _buildCameraStatusChip('Frame', frameOk),
-                    _buildCameraStatusChip('Eyes', eyesOpen),
-                    _buildCameraStatusChip('Light', lightingOk),
+                    _buildCameraStatusChip(
+                      'Eyes',
+                      widget.isAssessment ? eyesOpen : statusOk,
+                    ),
+                    _buildCameraStatusChip(
+                      'Light',
+                      widget.isAssessment ? lightingOk : statusOk,
+                    ),
                     _buildCameraStatusChip('Focus', attentive),
                   ],
                 ),
@@ -1264,19 +1333,19 @@ face_height             : ${facePos?['client_height']}
         issues.add('✗ Lighting is bright enough for clear face detection');
       }
 
-      if (analysis?['not_drowsy'] == false) {
-        issues.add('✗ You are not drowsy');
-      }
-
-      if (analysis?['yawning'] == true) {
-        issues.add('✗ You are not yawning');
-      }
-
-      if (analysis?['eyes_closed'] == true) {
-        issues.add('✗ Your eyes are open');
-      }
-
       if (!widget.isAssessment) {
+        if (analysis?['not_drowsy'] == false) {
+          issues.add('✗ You are not drowsy');
+        }
+
+        if (analysis?['yawning'] == true) {
+          issues.add('✗ You are not yawning');
+        }
+
+        if (analysis?['eyes_closed'] == true) {
+          issues.add('✗ Your eyes are open');
+        }
+
         if (!(latestResult['validation_passed'] ?? false)) {
           issues.add('✗ You are properly positioned');
         }
@@ -1359,52 +1428,12 @@ face_height             : ${facePos?['client_height']}
     return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
-  Map<String, dynamic> _currentEndcallPayload() {
-    final currentVideo = widget.videos[_currentVideoIndex];
-
-    return {
-      'type': 'endcall',
-      'filetype': 'video',
-      'day_completed': currentVideo.day > 0 ? currentVideo.day : widget.day,
-      'order_number': currentVideo.orderNumber,
-    };
-  }
-
-  void _sendEndcallForCurrentVideo({required bool waitForResult}) {
-    if (widget.videos.isEmpty || widget.isAssessment) return;
-
-    final payload = _currentEndcallPayload();
-    print(
-      'Sending video endcall: ${const JsonEncoder.withIndent('  ').convert(payload)}',
-    );
-
-    _isWaitingForEndcallResult = waitForResult;
-    _channel?.sink.add(jsonEncode(payload));
-  }
-
-  void _handleEndcallProcessed(Map<String, dynamic> data) {
-    printLongLog(
-      'ENDCALL PROCESSED',
-      const JsonEncoder.withIndent('  ').convert(data),
-    );
-
-    _latestEndcallProcessedResult = data;
-
-    if (!_isWaitingForEndcallResult) return;
-
-    _isWaitingForEndcallResult = false;
-
-    if (!mounted) return;
-    _showCompletionDialog(data);
-  }
-
-  void _onVideoComplete() {
+  Future<void> _onVideoComplete() async {
     if (_isHandlingVideoComplete) return;
     _isHandlingVideoComplete = true;
     _videoController?.pause();
 
     if (_currentVideoIndex < widget.videos.length - 1) {
-      _sendEndcallForCurrentVideo(waitForResult: false);
       setState(() {
         _currentVideoIndex++;
       });
@@ -1412,19 +1441,23 @@ face_height             : ${facePos?['client_height']}
       _initializeVideo();
       _isHandlingVideoComplete = false;
     } else {
+      await widget.attentionMonitor?.complete(
+        totalDuration:
+            _videoController?.value.position ??
+            Duration(seconds: _sessionDuration),
+      );
+      _completedSessionMetrics = widget.attentionMonitor?.sessionMetrics;
+
       if (widget.isAssessment) {
         _showCompletionDialog();
         return;
       }
 
       _frameTimer?.cancel();
-      _sendEndcallForCurrentVideo(waitForResult: true);
-
-      Future.delayed(const Duration(seconds: 8), () {
-        if (!mounted || !_isWaitingForEndcallResult) return;
-        _isWaitingForEndcallResult = false;
-        _showCompletionDialog(_latestEndcallProcessedResult);
-      });
+      if (_cameraController?.value.isStreamingImages == true) {
+        await _cameraController?.stopImageStream();
+      }
+      _showCompletionDialog();
     }
   }
 
@@ -1522,9 +1555,115 @@ face_height             : ${facePos?['client_height']}
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
+  AttentionSessionMetrics get _scoreMetrics {
+    final monitorMetrics =
+        _completedSessionMetrics ?? widget.attentionMonitor?.sessionMetrics;
+    if (monitorMetrics != null) return monitorMetrics;
+
+    final totalFrames = _validationHistory.length;
+    final badFrames = _validationHistory.where((entry) {
+      final result = entry['result'];
+      return result is Map<String, dynamic> &&
+          result['validation_passed'] != true;
+    }).length;
+    final attentionRate = totalFrames == 0
+        ? 0.0
+        : ((totalFrames - badFrames) / totalFrames) * 100;
+    final finalScore = totalFrames == 0 ? 0 : _attentionScore.clamp(0, 100);
+
+    return AttentionSessionMetrics(
+      finalScore: finalScore,
+      attentionEngagementRate: attentionRate.clamp(0, 100),
+      faceDetectionRate: 0,
+      averageConfidence: 0,
+      totalProcessedFrames: totalFrames,
+      sampledFrames: totalFrames,
+      sessionDurationSeconds: _sessionDuration,
+      inattentionDuration: _totalInattentionDuration,
+      maximumInattentionDuration: _totalInattentionDuration,
+      gazeRatioAverage: 0,
+      drowsyState: 0,
+      brightnessScore: 0,
+      pitch: 0,
+      yaw: 0,
+      roll: 0,
+      blinkRatio: 0,
+      yawnDistance: 0,
+      badFrameCount: badFrames,
+      blurryFrameCount: 0,
+      lowLightFrameCount: 0,
+      eyesClosedCount: 0,
+      gazeWarningCount: 0,
+    );
+  }
+
+  AiAssessmentScoreRequest? _buildScoreRequest() {
+    if (widget.videos.isEmpty) return null;
+    final fileId = widget.videos[_currentVideoIndex].id;
+    if (fileId == null) return null;
+    final metrics = _scoreMetrics;
+
+    return AiAssessmentScoreRequest(
+      fileId: fileId,
+      isAssessment: widget.isAssessment,
+      finalScore: metrics.finalScore,
+      attentionEngagementRate: metrics.attentionEngagementRate,
+      averageConfidence: metrics.averageConfidence,
+      totalProcessedFrames: metrics.totalProcessedFrames,
+      sampledFrames: metrics.sampledFrames,
+      sessionDurationSeconds: metrics.sessionDurationSeconds,
+      inattentionDuration: metrics.inattentionDuration,
+      gazeRatioAvg: metrics.gazeRatioAverage,
+      drowsyState: metrics.drowsyState,
+      brightnessScore: metrics.brightnessScore,
+      pitch: metrics.pitch,
+      yaw: metrics.yaw,
+      roll: metrics.roll,
+      blinkRatio: metrics.blinkRatio,
+      yawnDistance: metrics.yawnDistance,
+      badFrameCount: metrics.badFrameCount,
+      blurryFrameCount: metrics.blurryFrameCount,
+      lowLightFrameCount: metrics.lowLightFrameCount,
+      eyesClosedCount: metrics.eyesClosedCount,
+      gazeWarningCount: metrics.gazeWarningCount,
+    );
+  }
+
+  Future<void> _saveScoreAndExit(BuildContext dialogContext) async {
+    final request = _buildScoreRequest();
+    if (request == null) {
+      _showError(
+        'Unable to save this session because its video ID is missing.',
+      );
+      return;
+    }
+
+    final bloc = context.read<AiAssessmentScoreBloc>();
+    if (bloc.state is AiAssessmentScoreSaving) return;
+
+    final result = bloc.stream.firstWhere(
+      (state) =>
+          state is AiAssessmentScoreSaveSuccess ||
+          state is AiAssessmentScoreSaveFailure,
+    );
+    bloc.add(SaveAiAssessmentScoreRequested(request));
+    final state = await result;
+    if (!mounted || !dialogContext.mounted) return;
+
+    if (state is AiAssessmentScoreSaveFailure) {
+      _showError(state.message);
+      return;
+    }
+
+    Navigator.of(dialogContext).pop();
+    if (mounted) Navigator.of(context).pop();
+  }
+
   void _showCompletionDialog([Map<String, dynamic>? backendResult]) async {
     final backendSummary =
         backendResult?['session_summary'] as Map<String, dynamic>?;
+    final localMetrics = _scoreMetrics;
+    final useLocalMetrics = widget.attentionMonitor != null;
 
     await _notificationService?.playSessionComplete();
 
@@ -1534,53 +1673,30 @@ face_height             : ${facePos?['client_height']}
       return;
     }
 
-    /*
-    Previous frontend calculation kept for reference. The backend now sends the
-    final result in the endcall_processed socket payload, and the dialog reads
-    those values from session_summary instead.
-
-    final sessionAnalysis = _analyzeSessionHistory();
-    final double attentionPercentage =
-        sessionAnalysis['attentionPercentage'] ?? 0.0;
-    final double avgConcentration = sessionAnalysis['avgConcentration'] ?? 0.0;
-    final double faceDetectedPercentage =
-        sessionAnalysis['faceDetectedPercentage'] ?? 0.0;
-
-    final int finalScore =
-        ((attentionPercentage +
-                    (avgConcentration * 10) +
-                    faceDetectedPercentage) /
-                3)
-            .round();
-
-    final int displayScore = finalScore > 0 ? finalScore : _attentionScore;
-    */
-
-    final double avgConcentration = _readDouble(
-      backendSummary,
-      'avg_concentration_score',
-    );
-    final double faceDetectedPercentage = _readDouble(
-      backendSummary,
-      'face_detection_rate',
-    );
-    final double attentionPercentage = _readDouble(
-      backendSummary,
-      'attention_engagement_rate',
-    );
-    final double maxInattention = _readDouble(
-      backendSummary,
-      'max_inattention_duration',
-    );
-    final int displayScore = _readDouble(
-      backendSummary,
-      'final_attention_score_percent',
-    ).round();
+    final double avgConcentration = useLocalMetrics
+        ? localMetrics.attentionEngagementRate / 10
+        : _readDouble(backendSummary, 'avg_concentration_score');
+    final double faceDetectedPercentage = useLocalMetrics
+        ? localMetrics.faceDetectionRate
+        : _readDouble(backendSummary, 'face_detection_rate');
+    final double attentionPercentage = useLocalMetrics
+        ? localMetrics.attentionEngagementRate
+        : _readDouble(backendSummary, 'attention_engagement_rate');
+    final double maxInattention = useLocalMetrics
+        ? localMetrics.maximumInattentionDuration
+        : _readDouble(backendSummary, 'max_inattention_duration');
+    final int displayScore = useLocalMetrics
+        ? localMetrics.finalScore
+        : _readDouble(backendSummary, 'final_attention_score_percent').round();
     final int safeDisplayScore = displayScore > 0
         ? displayScore.clamp(0, 100)
         : _attentionScore;
-    final int totalFrames = _readInt(backendSummary, 'total_frames');
-    final int metricsCount = _readInt(backendResult, 'metrics_count') > 0
+    final int totalFrames = useLocalMetrics
+        ? localMetrics.totalProcessedFrames
+        : _readInt(backendSummary, 'total_frames');
+    final int metricsCount = useLocalMetrics
+        ? localMetrics.sampledFrames
+        : _readInt(backendResult, 'metrics_count') > 0
         ? _readInt(backendResult, 'metrics_count')
         : _readInt(backendSummary, 'stored_metric_samples');
     final bool progressUpdated = backendResult?['progress_updated'] == true;
@@ -1588,8 +1704,6 @@ face_height             : ${facePos?['client_height']}
         backendResult?['message']?.toString() ?? 'Session ended successfully';
 
     await _notificationService?.playEncouragement(safeDisplayScore);
-
-    final int pointsEarned = 200 + (safeDisplayScore ~/ 10) * 10;
 
     final String performanceLevel = safeDisplayScore >= 90
         ? 'Excellent'
@@ -1622,7 +1736,9 @@ face_height             : ${facePos?['client_height']}
               backendResult?['order_number'] ??
               widget.videos[_currentVideoIndex].orderNumber,
           videosWatched: widget.videos.length,
-          sessionDuration: _formatDuration(_sessionDuration),
+          sessionDuration: useLocalMetrics
+              ? _formatDuration(localMetrics.sessionDurationSeconds)
+              : _formatDuration(_sessionDuration),
           metricsCount: metricsCount,
           totalFrames: totalFrames,
           avgConcentration: avgConcentration,
@@ -1630,15 +1746,10 @@ face_height             : ${facePos?['client_height']}
           attentionPercentage: attentionPercentage,
           maxInattention: maxInattention,
           progressUpdated: progressUpdated,
-          pointsEarned: pointsEarned,
           score: safeDisplayScore,
           performanceLevel: performanceLevel,
           performanceColor: performanceColor,
-          onDone: () {
-            final navigator = Navigator.of(dialogContext);
-            navigator.pop();
-            navigator.pop();
-          },
+          onDone: () => _saveScoreAndExit(dialogContext),
         );
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -1658,11 +1769,7 @@ face_height             : ${facePos?['client_height']}
       transitionDuration: const Duration(milliseconds: 260),
       pageBuilder: (dialogContext, animation, secondaryAnimation) {
         return _AssessmentCompletionView(
-          onDone: () {
-            final navigator = Navigator.of(dialogContext);
-            navigator.pop();
-            navigator.pop();
-          },
+          onDone: () => _saveScoreAndExit(dialogContext),
         );
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -1682,12 +1789,13 @@ face_height             : ${facePos?['client_height']}
 
   @override
   void dispose() {
+    _validationRevision.dispose();
+    widget.attentionMonitor?.dispose();
     _faceDetector.close();
     _videoController?.dispose();
     _cameraController?.dispose();
     _frameTimer?.cancel();
     _sessionTimer?.cancel();
-    _channel?.sink.close();
     _notificationService?.dispose();
     super.dispose();
   }
@@ -1898,7 +2006,6 @@ class _ManagementCompletionView extends StatelessWidget {
   final double attentionPercentage;
   final double maxInattention;
   final bool progressUpdated;
-  final int pointsEarned;
   final int score;
   final String performanceLevel;
   final Color performanceColor;
@@ -1917,7 +2024,6 @@ class _ManagementCompletionView extends StatelessWidget {
     required this.attentionPercentage,
     required this.maxInattention,
     required this.progressUpdated,
-    required this.pointsEarned,
     required this.score,
     required this.performanceLevel,
     required this.performanceColor,
@@ -2090,11 +2196,6 @@ class _ManagementCompletionView extends StatelessWidget {
                               scale: scale,
                             ),
                             SizedBox(height: isShort ? 10 : 12 * scale),
-                            _PointsBand(
-                              pointsEarned: pointsEarned,
-                              compact: true,
-                            ),
-                            SizedBox(height: isShort ? 10 : 12 * scale),
                             _DetailMetricChips(
                               metrics: detailMetrics,
                               compact: isShort,
@@ -2129,27 +2230,50 @@ class _ManagementCompletionView extends StatelessWidget {
                               ),
                             ],
                           ),
-                          child: ElevatedButton(
-                            onPressed: onDone,
-                            style: ElevatedButton.styleFrom(
-                              elevation: 0,
-                              shadowColor: Colors.transparent,
-                              backgroundColor: Colors.transparent,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(17 * scale),
+                          child:
+                              BlocBuilder<
+                                AiAssessmentScoreBloc,
+                                AiAssessmentScoreState
+                              >(
+                                builder: (context, state) {
+                                  final saving =
+                                      state is AiAssessmentScoreSaving;
+                                  return ElevatedButton(
+                                    onPressed: saving ? null : onDone,
+                                    style: ElevatedButton.styleFrom(
+                                      elevation: 0,
+                                      shadowColor: Colors.transparent,
+                                      backgroundColor: Colors.transparent,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                          17 * scale,
+                                        ),
+                                      ),
+                                    ),
+                                    child: saving
+                                        ? const SizedBox.square(
+                                            dimension: 24,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2.5,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                        : Text(
+                                            'Done',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: (20 * scale).clamp(
+                                                18,
+                                                22,
+                                              ),
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 0,
+                                            ),
+                                          ),
+                                  );
+                                },
                               ),
-                            ),
-                            child: Text(
-                              'Done',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: (20 * scale).clamp(18, 22),
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0,
-                              ),
-                            ),
-                          ),
                         ),
                       ),
                     ),
@@ -2310,66 +2434,6 @@ class _ManagementSummaryBand extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PointsBand extends StatelessWidget {
-  final int pointsEarned;
-  final bool compact;
-
-  const _PointsBand({required this.pointsEarned, required this.compact});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [_ManagementCompletionView._gold, const Color(0xFFFFD95B)],
-        ),
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: _ManagementCompletionView._gold.withValues(alpha: .2),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.stars_rounded,
-            color: Colors.black,
-            size: compact ? 26 : 30,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Points Earned',
-              style: TextStyle(
-                color: Colors.black87,
-                fontSize: compact ? 14 : 15,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0,
-              ),
-            ),
-          ),
-          Text(
-            '$pointsEarned',
-            style: TextStyle(
-              color: Colors.black,
-              fontSize: compact ? 25 : 30,
-              fontWeight: FontWeight.w900,
-              height: 1,
-              letterSpacing: 0,
             ),
           ),
         ],
@@ -2672,27 +2736,44 @@ class _AssessmentCompletionView extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: ElevatedButton(
-                    onPressed: onDone,
-                    style: ElevatedButton.styleFrom(
-                      elevation: 0,
-                      shadowColor: Colors.transparent,
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(17 * scale),
+                  child:
+                      BlocBuilder<
+                        AiAssessmentScoreBloc,
+                        AiAssessmentScoreState
+                      >(
+                        builder: (context, state) {
+                          final saving = state is AiAssessmentScoreSaving;
+                          return ElevatedButton(
+                            onPressed: saving ? null : onDone,
+                            style: ElevatedButton.styleFrom(
+                              elevation: 0,
+                              shadowColor: Colors.transparent,
+                              backgroundColor: Colors.transparent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(17 * scale),
+                              ),
+                            ),
+                            child: saving
+                                ? const SizedBox.square(
+                                    dimension: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    'Done',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: (22 * scale).clamp(20, 24),
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0,
+                                    ),
+                                  ),
+                          );
+                        },
                       ),
-                    ),
-                    child: Text(
-                      'Done',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: (22 * scale).clamp(20, 24),
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0,
-                      ),
-                    ),
-                  ),
                 ),
               ),
             ),

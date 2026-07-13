@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "908828655450-152hkifu7usdjojb3fefsu9l3dt8g070.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.adhd_minder",
+            "certificate_hash": "029054c605d1a845aaab177c4c182aff986ffee4"
+          }
+        },
+        {
           "client_id": "908828655450-cd767skbe56i2mhs6ndf4tk9josarnoq.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
@@ -29,6 +37,78 @@
             "certificate_hash": "4c87386b693dec43fe30ec6dcb59afd97bda5c5c"
           }
         },
+        {
+          "client_id": "908828655450-tnfd4g2tn7s037j3hkt02skclv8f642u.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyClVbf7JzKio5Cn3KURCWVEVVngjxgKMEU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "908828655450-tnfd4g2tn7s037j3hkt02skclv8f642u.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "908828655450-45pfs3nv3439mquonumkmjf5lkrlp7gj.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "attentionminder.trufoxai.com"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:908828655450:android:f9e5d4aa1bfca6d8db3d63",
+        "android_client_info": {
+          "package_name": "com.example.chatty"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "908828655450-tnfd4g2tn7s037j3hkt02skclv8f642u.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyClVbf7JzKio5Cn3KURCWVEVVngjxgKMEU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "908828655450-tnfd4g2tn7s037j3hkt02skclv8f642u.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "908828655450-45pfs3nv3439mquonumkmjf5lkrlp7gj.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "attentionminder.trufoxai.com"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:908828655450:android:53260705b6d629a1db3d63",
+        "android_client_info": {
+          "package_name": "com.trufox.attentionminder"
+        }
+      },
+      "oauth_client": [
         {
           "client_id": "908828655450-tnfd4g2tn7s037j3hkt02skclv8f642u.apps.googleusercontent.com",
           "client_type": 3

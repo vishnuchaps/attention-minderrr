@@ -16,8 +16,10 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 
 class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
+
   @override
-  _ProfileScreenState createState() => _ProfileScreenState();
+  State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
@@ -229,9 +231,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     if (!mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => LandingScreen()),
+    _leaveProfile();
+  }
+
+  void _leaveProfile() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+
+    navigator.pushReplacement(
+      MaterialPageRoute<void>(builder: (_) => const LandingScreen()),
     );
   }
 
@@ -277,12 +288,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SnackBar(content: Text('Profile updated successfully')),
                 );
 
-                // Avoid duplicate trigger during rebuild
                 Future.microtask(() {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => LandingScreen()),
-                  );
+                  if (mounted) _leaveProfile();
                 });
               } else if (state is UpdateProfileFailed) {
                 messenger.clearSnackBars();

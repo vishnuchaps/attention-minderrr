@@ -10,7 +10,7 @@ class FetchProfileSuccess extends ProfileState {
   final UserData data;
 
   FetchProfileSuccess(this.data);
-}
+} 
 
 class FetchProfileFailed extends ProfileState {
   final String message;

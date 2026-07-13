@@ -6,7 +6,6 @@ import 'package:attention_minder/module/home/presentation/bloc/progress_bloc.dar
 import 'package:attention_minder/module/home/presentation/widgets/featured_articles_section.dart';
 import 'package:attention_minder/module/home/presentation/widgets/progress_card_widget.dart';
 import 'package:attention_minder/module/management/presentation/screens/management_screen.dart';
-import 'package:attention_minder/module/profile/presentation/screens/profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
@@ -270,20 +269,7 @@ class _HomeHeader extends StatelessWidget {
             ),
           ),
           SizedBox(width: metrics.s(16)),
-          UserProfileAvatar(
-            size: metrics.s(62),
-            borderWidth: 3,
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) {
-                    return ProfileScreen();
-                  },
-                ),
-              );
-            },
-          ),
+          UserProfileAvatar(size: metrics.s(62), borderWidth: 3),
         ],
       ),
     );

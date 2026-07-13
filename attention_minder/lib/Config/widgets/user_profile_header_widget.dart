@@ -1,4 +1,3 @@
-import 'package:attention_minder/module/profile/presentation/screens/profile_screen.dart';
 import 'package:flutter/material.dart';
 
 import '../../module/landing/presentation/screens/landing_screen.dart';
@@ -31,23 +30,21 @@ class UserProfileHeader extends StatelessWidget {
                       ),
                 )
               : ArrowLeftIconWidget(
-                  callback: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => LandingScreen()),
-                    );
+                  callback: () async {
+                    final navigator = Navigator.of(context);
+                    if (navigator.canPop()) {
+                      navigator.pop();
+                    } else {
+                      navigator.pushReplacement(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const LandingScreen(),
+                        ),
+                      );
+                    }
                   },
                 ),
           const Spacer(),
-          GestureDetector(
-            onTap: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => ProfileScreen()),
-              );
-            },
-            child: const UserProfileAvatar(),
-          ),
+          const UserProfileAvatar(),
         ],
       ),
     );

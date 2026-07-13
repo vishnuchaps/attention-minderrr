@@ -34,8 +34,8 @@ class ProgressRepository extends IProgressRepository {
       return AssessmentResultResponse.fromJson(response.data);
     } on DioException catch (e) {
       print("Dio Error: ${e.response?.statusCode} - ${e.response?.data}");
-      throw Exception(
-        e.response?.data['message'] ?? "Failed to fetch assessment results.",
+      throw Exception(  
+        e.response?.data['message'] ?? "Fa  iled to fetch assessment results.",
       );
     }
   }

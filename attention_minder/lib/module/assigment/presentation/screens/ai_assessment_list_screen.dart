@@ -1,4 +1,4 @@
-import 'package:attention_minder/module/attention_management/presentation/screens/video_treatment_screen.dart';
+import 'package:attention_minder/module/attention_management/presentation/screens/hybrid_video_treatment_screen.dart';
 import 'package:attention_minder/module/file_handler/data/model/video_file_model.dart';
 import 'package:attention_minder/module/file_handler/presentation/bloc/file_handler_bloc.dart';
 import 'package:flutter/material.dart';
@@ -165,7 +165,7 @@ class _AiAssessmentListScreenState extends State<AiAssessmentListScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => VideoTreatmentScreen(
+        builder: (_) => buildVideoTreatmentScreen(
           day: file.day,
           videos: [file],
           isAssessment: true,

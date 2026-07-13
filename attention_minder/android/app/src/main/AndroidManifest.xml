@@ -5,6 +5,7 @@
     <application
         android:label="Attention Minder"
         android:usesCleartextTraffic="true"
+        android:enableOnBackInvokedCallback="true"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round">
@@ -28,6 +29,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="attentionminder" android:host="payments"/>
+                <data android:scheme="attentionminder" android:host="payment"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

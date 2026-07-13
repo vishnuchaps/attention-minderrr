@@ -1,8 +1,7 @@
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'package:attention_minder/module/attention_management/presentation/screens/pdf_treatment_screen.dart';
-import 'package:attention_minder/module/attention_management/presentation/screens/video_treatment_screen.dart';
+import 'package:attention_minder/module/attention_management/presentation/screens/hybrid_video_treatment_screen.dart';
 import 'package:attention_minder/module/file_handler/data/model/video_file_model.dart';
 import 'package:attention_minder/module/file_handler/presentation/bloc/file_handler_bloc.dart';
 import 'package:flutter/material.dart';
@@ -53,7 +52,7 @@ class _AttentionVideoMonitoringScreenState
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => PdfTreatmentScreen(
+            builder: (context) => buildPdfTreatmentScreen(
               day: widget.day,
               fileData: file,
               localPath: f.path,
@@ -464,10 +463,11 @@ class _AttentionVideoMonitoringScreenState
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => VideoTreatmentScreen(
-                                    day: widget.day,
-                                    videos: dayVideos,
-                                  ),
+                                  builder: (context) =>
+                                      buildVideoTreatmentScreen(
+                                        day: widget.day,
+                                        videos: dayVideos,
+                                      ),
                                 ),
                               );
                             }

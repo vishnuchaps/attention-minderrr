@@ -68,7 +68,7 @@ class VideoFile {
       isManagement: false,
       ageGroup: '',
       day: 0,
-      mediaType: _isPdfUrl(url) ? 'file' : 'video',
+      mediaType: _isDocumentUrl(url) ? 'file' : 'video',
       orderNumber: 0,
       createdAt: null,
     );
@@ -130,7 +130,7 @@ class VideoFile {
   }
 
   bool get isPdf {
-    return mediaType == 'file' || _isPdfUrl(url) || _isPdfUrl(key);
+    return mediaType == 'file' || _isDocumentUrl(url) || _isDocumentUrl(key);
   }
 
   bool get isVideo {
@@ -145,6 +145,7 @@ class VideoFile {
         .first
         .replaceAll('.mp4', '')
         .replaceAll('.pdf', '')
+        .replaceAll('.docx', '')
         .replaceAll('-', ' ')
         .trim();
   }
@@ -156,10 +157,11 @@ class VideoFile {
   }
 }
 
-bool _isPdfUrl(String value) {
+bool _isDocumentUrl(String value) {
   final parsedUri = Uri.tryParse(value);
   final path = parsedUri?.path ?? value.split('?').first;
-  return path.toLowerCase().endsWith('.pdf');
+  final normalizedPath = path.toLowerCase();
+  return normalizedPath.endsWith('.pdf') || normalizedPath.endsWith('.docx');
 }
 
 int _parseDay(dynamic value) {
@@ -193,6 +195,7 @@ String _resolveMediaType({
 
   if (normalizedFileType == 'document' ||
       normalizedFileType == 'pdf' ||
+      normalizedFileType == 'docx' ||
       normalizedFileType == 'file') {
     return 'file';
   }
@@ -201,5 +204,5 @@ String _resolveMediaType({
     return 'video';
   }
 
-  return _isPdfUrl(url) || _isPdfUrl(key) ? 'file' : 'video';
+  return _isDocumentUrl(url) || _isDocumentUrl(key) ? 'file' : 'video';
 }

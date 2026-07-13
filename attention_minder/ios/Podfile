@@ -22,8 +22,60 @@ def flutter_root
 end
 
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+require File.expand_path(
+  '.symlinks/plugins/google_mlkit_commons/ios/scripts/apple_silicon_simulator',
+  __dir__,
+)
 
 flutter_ios_podfile_setup
+
+# mediapipe_face_mesh 2.0.0 bundles a fat TensorFlowLiteC framework whose
+# arm64 slice is labeled for iPhoneOS. Reuse the reversible ML Kit relabel
+# build phase so that slice targets the active Apple platform (device or
+# simulator) without changing its machine code.
+def include_mediapipe_tflite_in_apple_silicon_patch(installer)
+  patcher = File.join(
+    installer.sandbox.root.to_s,
+    'MLKitAppleSiliconSimulator',
+    'patch_arm64_simulator.py',
+  )
+  return unless File.exist?(patcher)
+
+  source = File.read(patcher)
+  anchor = "    binaries = list(_iter_framework_binaries(args.pods_root))\n"
+  addition = [
+    "    mediapipe_tflite = os.path.realpath(os.path.join(\n",
+    "        args.pods_root, '..', '.symlinks', 'plugins',\n",
+    "        'mediapipe_face_mesh', 'ios', 'Frameworks',\n",
+    "        'TensorFlowLiteC.framework', 'TensorFlowLiteC'))\n",
+    "    if os.path.isfile(mediapipe_tflite):\n",
+    "        binaries.append(mediapipe_tflite)\n",
+  ].join
+  return if source.include?('mediapipe_tflite = os.path.realpath')
+  raise 'ML Kit Apple Silicon patch format changed' unless source.include?(anchor)
+
+  File.write(patcher, source.sub(anchor, anchor + addition))
+
+  target = installer.pods_project.targets.find do |candidate|
+    candidate.name == 'mediapipe_face_mesh'
+  end
+  return if target.nil?
+
+  phase_name = '[MediaPipe] Relabel TensorFlowLiteC for current platform'
+  phase = target.shell_script_build_phases.find { |item| item.name == phase_name }
+  phase ||= target.new_shell_script_build_phase(phase_name)
+  phase.shell_path = '/bin/sh'
+  phase.shell_script = <<~SH
+    set -euo pipefail
+    /usr/bin/env python3 "${PODS_ROOT}/MLKitAppleSiliconSimulator/patch_arm64_simulator.py" \
+      --platform "${PLATFORM_NAME}" \
+      --pods-root "${PODS_ROOT}"
+  SH
+  phase.always_out_of_date = '1' if phase.respond_to?(:always_out_of_date=)
+  target.build_phases.delete(phase)
+  target.build_phases.insert(0, phase)
+  installer.pods_project.save
+end
 
 target 'Runner' do
   use_frameworks!
@@ -44,4 +96,6 @@ post_install do |installer|
       config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'NO'
     end
   end
+  mlkit_apple_silicon_simulator_patch(installer)
+  include_mediapipe_tflite_in_apple_silicon_patch(installer)
 end
