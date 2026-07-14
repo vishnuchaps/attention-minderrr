@@ -6,6 +6,7 @@ import 'package:attention_minder/module/attention_management/presentation/screen
 import 'package:attention_minder/module/attention_management/presentation/screens/video_treatment_screen.dart';
 import 'package:attention_minder/module/attention_management/domain/temporal_attention_filter.dart';
 import 'package:attention_minder/module/attention_management/domain/management_session_scorer.dart';
+import 'package:attention_minder/module/attention_management/domain/reading_gaze_classifier.dart';
 import 'package:attention_minder/module/file_handler/data/model/video_file_model.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -37,6 +38,9 @@ Widget buildPdfTreatmentScreen({
     localPath: localPath,
     attentionMonitor: HybridMlKitAttentionMonitor(
       requireReadingPattern: true,
+      // Camera inference can miss the very short saccades made while reading.
+      // Give calibration and the rolling gaze window time to settle, then
+      // surface a stationary-gaze warning promptly enough to be actionable.
       readingPatternGracePeriod: const Duration(seconds: 6),
       maximumReadingPause: const Duration(seconds: 6),
     ),
@@ -228,7 +232,11 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
   double? _filteredVerticalIrisRatio;
   int? _readingObservationStartedAtMs;
   int? _lastReadingActivityAtMs;
+  int? _lastReadingLineProgressionAtMs;
   int? _lastContentInteractionAtMs;
+  bool? _readingUsesCalibratedGaze;
+  static const ReadingGazeClassifier _readingGazeClassifier =
+      ReadingGazeClassifier(minimumObservationDuration: Duration(seconds: 5));
   final List<_ReadingGazePoint> _readingGazeWindow = <_ReadingGazePoint>[];
   _AttentionState? _singleEyeClosureCandidate;
   int? _singleEyeClosureCandidateStartedAtVideoMs;
@@ -491,10 +499,19 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
     final relativeYaw = yaw - (_headYawBaseline ?? 0);
     final relativePitch = pitch - (_headPitchBaseline ?? 0);
     final headDirection = _headYawBaseline == null || _headPitchBaseline == null
-        ? null
+        // Horizontal absolute yaw is stable enough to protect early-session
+        // face-turn detection. Absolute pitch is intentionally excluded here
+        // because normal phone height creates platform/device-specific bias.
+        ? _rawHorizontalDirectionFromHeadPose(yaw)
         : _rawDirectionFromHeadPose(yaw: relativeYaw, pitch: relativePitch);
     final rawDirection = rawEyesClosed
         ? null
+        : requireReadingPattern
+        // Moving the eyes toward either edge is normal while scanning a PDF
+        // line. In reading mode, only an actual head turn should feed the
+        // generic directional-distraction alert; iris movement is evaluated
+        // separately by the reading-pattern detector below.
+        ? headDirection
         : _fusedDirection(
             irisDirection: eyeDirection,
             headDirection: headDirection,
@@ -528,7 +545,16 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
 
     if (requireReadingPattern) {
       final readingNotDetected = _updateReadingPattern(
-        gazeOffset: gazeOffset,
+        gazeOffset:
+            gazeOffset ??
+            (irisSample != null &&
+                    irisSample.confidence >= minimumIrisConfidence
+                ? _IrisGazeOffset(
+                    horizontal: irisSample.horizontalRatio,
+                    vertical: irisSample.verticalRatio,
+                  )
+                : null),
+        usesCalibratedGaze: gazeOffset != null,
         timestampMs: now,
         isEligible:
             nextState == _AttentionState.focused &&
@@ -594,6 +620,17 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
     }
 
     final attentive = nextState == _AttentionState.focused;
+    final readingUncertain = nextState == _AttentionState.readingNotDetected;
+    final readingInactivityMs = _lastReadingActivityAtMs == null
+        ? 0
+        : now - _lastReadingActivityAtMs!;
+    final prolongedReadingInactivity =
+        readingUncertain &&
+        readingInactivityMs >= const Duration(seconds: 6).inMilliseconds;
+    // Reading inactivity is weaker than physical attention evidence, so only
+    // escalate it after the prolonged threshold and a full stationary window.
+    final shouldShowAlert =
+        !attentive && (!readingUncertain || prolongedReadingInactivity);
     // Alert recovery must describe the current frame, not the temporally held
     // warning state. The hold is useful for preventing warning flicker during
     // playback, but it must not keep the Continue button locked after the user
@@ -654,6 +691,21 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
     return {
       'face_detected': faceVisible,
       'validation_passed': attentive,
+      'attention_state': attentive
+          ? 'attentive'
+          : readingUncertain && !prolongedReadingInactivity
+          ? 'possibly_distracted'
+          : 'distracted',
+      'should_show_alert': shouldShowAlert,
+      'should_show_advisory': readingUncertain && !prolongedReadingInactivity,
+      'reason_code': _eventType(nextState),
+      'confidence': attentive
+          ? 0.9
+          : readingUncertain && !prolongedReadingInactivity
+          ? 0.55
+          : readingUncertain
+          ? 0.75
+          : 0.9,
       'ready_to_continue': readyToContinue,
       'readiness': {
         'face_visible': faceVisible,
@@ -761,6 +813,8 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
             maximumDetectorObservationGap.inMilliseconds,
         'reading_pattern_grace_ms': readingPatternGracePeriod.inMilliseconds,
         'maximum_reading_pause_ms': maximumReadingPause.inMilliseconds,
+        'reading_inactivity_ms': readingInactivityMs,
+        'reading_alert_threshold_ms': const Duration(seconds: 6).inMilliseconds,
         'last_reading_activity_ms': _lastReadingActivityAtMs,
         'last_content_interaction_ms': _lastContentInteractionAtMs,
         'direction_candidate': _directionCandidate == null
@@ -777,7 +831,11 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
         'model_version': modelVersion,
       },
       'ui_message': {
-        'severity': attentive ? 'info' : 'warning',
+        'severity': attentive
+            ? 'info'
+            : readingUncertain && !prolongedReadingInactivity
+            ? 'notice'
+            : 'warning',
         'reason': _eventType(nextState).toLowerCase(),
         'message': message,
       },
@@ -1309,6 +1367,7 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
 
   bool _updateReadingPattern({
     required _IrisGazeOffset? gazeOffset,
+    required bool usesCalibratedGaze,
     required int timestampMs,
     required bool isEligible,
   }) {
@@ -1316,7 +1375,9 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
       // Do not count time spent correcting another attention issue as
       // reading inactivity. Reading evaluation resumes from a clean sample.
       _lastReadingActivityAtMs = timestampMs;
+      _lastReadingLineProgressionAtMs = timestampMs;
       _readingGazeWindow.clear();
+      _readingUsesCalibratedGaze = null;
       return false;
     }
 
@@ -1325,8 +1386,15 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
       return false;
     }
 
+    if (_readingUsesCalibratedGaze != null &&
+        _readingUsesCalibratedGaze != usesCalibratedGaze) {
+      _readingGazeWindow.clear();
+    }
+    _readingUsesCalibratedGaze = usesCalibratedGaze;
+
     _readingObservationStartedAtMs ??= timestampMs;
     _lastReadingActivityAtMs ??= timestampMs;
+    _lastReadingLineProgressionAtMs ??= timestampMs;
 
     _readingGazeWindow.add(
       _ReadingGazePoint(
@@ -1350,7 +1418,12 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
       var currentDirectionalTravel = 0.0;
       var longestDirectionalTravel = 0.0;
       var previousDirection = 0;
+      var verticalTravel = 0.0;
+      var currentVerticalDirectionalTravel = 0.0;
+      var longestVerticalDirectionalTravel = 0.0;
+      var previousVerticalDirection = 0;
       final stepSizes = <double>[];
+      final verticalStepSizes = <double>[];
 
       for (var index = 1; index < _readingGazeWindow.length; index++) {
         final current = _readingGazeWindow[index];
@@ -1361,6 +1434,25 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
         maximumVertical = max(maximumVertical, current.vertical);
         final step = (current.horizontal - previous.horizontal).abs();
         stepSizes.add(step);
+        final verticalStep = (current.vertical - previous.vertical).abs();
+        verticalStepSizes.add(verticalStep);
+        if (verticalStep >= 0.0035) {
+          verticalTravel += verticalStep;
+          final verticalDirection = current.vertical > previous.vertical
+              ? 1
+              : -1;
+          if (verticalDirection == previousVerticalDirection ||
+              previousVerticalDirection == 0) {
+            currentVerticalDirectionalTravel += verticalStep;
+          } else {
+            longestVerticalDirectionalTravel = max(
+              longestVerticalDirectionalTravel,
+              currentVerticalDirectionalTravel,
+            );
+            currentVerticalDirectionalTravel = verticalStep;
+          }
+          previousVerticalDirection = verticalDirection;
+        }
         if (step >= 0.0045) {
           horizontalTravel += step;
           meaningfulSteps++;
@@ -1381,39 +1473,109 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
         longestDirectionalTravel,
         currentDirectionalTravel,
       );
+      longestVerticalDirectionalTravel = max(
+        longestVerticalDirectionalTravel,
+        currentVerticalDirectionalTravel,
+      );
       stepSizes.sort();
+      verticalStepSizes.sort();
       final noiseStep = stepSizes[stepSizes.length ~/ 4];
+      final verticalNoiseStep =
+          verticalStepSizes[verticalStepSizes.length ~/ 4];
+      final decisiveStepFloor = max(0.009, noiseStep * 2.7);
+      final decisiveSteps = stepSizes
+          .where((step) => step >= decisiveStepFloor)
+          .length;
+      final decisiveVerticalStepFloor = max(0.007, verticalNoiseStep * 2.5);
+      final decisiveVerticalSteps = verticalStepSizes
+          .where((step) => step >= decisiveVerticalStepFloor)
+          .length;
 
       final horizontalCoverage = maximumHorizontal - minimumHorizontal;
       final verticalProgression = maximumVertical - minimumVertical;
+      final directionalCoherence = horizontalTravel <= 0
+          ? 0.0
+          : longestDirectionalTravel / horizontalTravel;
+      final verticalDirectionalCoherence = verticalTravel <= 0
+          ? 0.0
+          : longestVerticalDirectionalTravel / verticalTravel;
       // Camera distance, eye shape, and sensor noise vary materially between
       // users. Scale the evidence floor from the observed median movement,
       // while retaining absolute minima so stationary landmark jitter cannot
       // certify reading.
-      final coverageFloor = max(0.012, noiseStep * 3.2);
-      final travelFloor = max(0.022, noiseStep * 5.5);
-      final directionalFloor = max(0.008, noiseStep * 2.2);
+      final coverageFloor = max(0.015, noiseStep * 3.0);
+      final travelFloor = max(0.026, noiseStep * 5.0);
+      final directionalFloor = max(0.01, noiseStep * 2.1);
       final hasRecentContentInteraction =
           _lastContentInteractionAtMs != null &&
           timestampMs - _lastContentInteractionAtMs! <= 2500;
       // Scrolling or changing pages supports an already plausible gaze
       // pattern, but never certifies reading by itself.
-      final interactionFactor = hasRecentContentInteraction ? 0.88 : 1.0;
+      final interactionFactor = hasRecentContentInteraction ? 0.82 : 1.0;
       final clearLineScan =
           horizontalCoverage >= coverageFloor * interactionFactor &&
           horizontalTravel >= travelFloor * interactionFactor &&
           longestDirectionalTravel >= directionalFloor * interactionFactor &&
-          meaningfulSteps >= 3;
+          // Real reading contains fixations and a fast return sweep at each
+          // line ending, so whole-window directionality must not be overly
+          // strict. The distance floors above still reject stationary jitter.
+          directionalCoherence >= 0.45 &&
+          decisiveSteps >= 3 &&
+          meaningfulSteps >= 4;
       final scanWithLineProgression =
           horizontalCoverage >= coverageFloor * 0.75 &&
           horizontalTravel >= travelFloor * 0.85 &&
           longestDirectionalTravel >= directionalFloor * 0.8 &&
-          verticalProgression >= max(0.006, noiseStep * 1.5) &&
-          meaningfulSteps >= 3;
-      if (clearLineScan || scanWithLineProgression) {
+          verticalProgression >= max(0.007, noiseStep * 1.4) &&
+          directionalCoherence >= 0.40 &&
+          decisiveSteps >= 3 &&
+          meaningfulSteps >= 4;
+      // Credit an in-progress line before its return sweep occurs. A reader
+      // commonly pauses on words and can take longer than the inactivity
+      // timeout to finish a dense line. Requiring two noise-separated
+      // saccades in one coherent direction distinguishes this from fixation
+      // jitter without waiting for the entire line/next-line cycle.
+      final activeWithinLineReading =
+          horizontalCoverage >= max(0.018, noiseStep * 3.8) &&
+          horizontalTravel >= max(0.028, noiseStep * 5.5) &&
+          longestDirectionalTravel >= max(0.015, noiseStep * 3.2) &&
+          directionalCoherence >= 0.52 &&
+          // A stationary eye produces several random landmark jumps. Require
+          // a coherent run of multiple word-to-word saccades so that camera
+          // jitter cannot continuously reset the reading-inactivity timer.
+          decisiveSteps >= 3 &&
+          meaningfulSteps >= 4;
+      // A next-line transition requires both horizontal word movement and a
+      // vertical iris step larger than the measured per-user camera noise.
+      // Vertical drift alone is deliberately never accepted as reading.
+      final lineTransitionDetected =
+          verticalProgression >= max(0.010, verticalNoiseStep * 3.0) &&
+          horizontalCoverage >= max(0.009, noiseStep * 2.2) &&
+          decisiveVerticalSteps >= 1 &&
+          decisiveSteps >= 3 &&
+          meaningfulSteps >= 4;
+      // Bullets and list items are often much shorter than paragraph lines.
+      // Credit a coherent downward progression across compact lines without
+      // requiring the full horizontal travel of ordinary prose.
+      final compactLineProgression =
+          verticalProgression >= max(0.012, verticalNoiseStep * 3.2) &&
+          verticalDirectionalCoherence >= 0.52 &&
+          decisiveVerticalSteps >= 2 &&
+          horizontalCoverage >= max(0.006, noiseStep * 1.8) &&
+          meaningfulSteps >= 2;
+      if (clearLineScan ||
+          scanWithLineProgression ||
+          activeWithinLineReading ||
+          lineTransitionDetected ||
+          compactLineProgression) {
         _lastReadingActivityAtMs = timestampMs;
-        // Start a fresh evidence window. This prevents one old wide movement
-        // from continuously certifying a later motionless stare as reading.
+        if (scanWithLineProgression ||
+            lineTransitionDetected ||
+            compactLineProgression) {
+          _lastReadingLineProgressionAtMs = timestampMs;
+        }
+        // Consume the evidence immediately. Reusing an old movement on every
+        // frame would let one glance mask a later stationary stare.
         _readingGazeWindow.clear();
       }
     }
@@ -1428,13 +1590,40 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
     final readingPauseExceeded =
         timestampMs - _lastReadingActivityAtMs! >=
         maximumReadingPause.inMilliseconds;
-    return graceElapsed && readingPauseExceeded;
+    // Never warn from elapsed time alone. Five calibrated observations are
+    // required so temporary inference slowdown cannot create a false alert.
+    final hasEnoughEvidence = _readingGazeWindow.length >= 5;
+    return graceElapsed &&
+        readingPauseExceeded &&
+        hasEnoughEvidence &&
+        _readingWindowShowsStationaryGaze();
+  }
+
+  bool _readingWindowShowsStationaryGaze() {
+    return _readingGazeClassifier.isStationary(
+      _readingGazeWindow
+          .map(
+            (sample) => ReadingGazeObservation(
+              timestampMs: sample.timestampMs,
+              horizontal: sample.horizontal,
+              vertical: sample.vertical,
+            ),
+          )
+          .toList(growable: false),
+    );
   }
 
   @override
   void recordContentInteraction() {
     if (!requireReadingPattern || !_observationClock.isRunning) return;
-    _lastContentInteractionAtMs = _observationClock.elapsedMilliseconds;
+    final timestampMs = _observationClock.elapsedMilliseconds;
+    _lastContentInteractionAtMs = timestampMs;
+    // Real scrolling/page progression is independent evidence that the user
+    // is advancing through the document. Consume any old gaze evidence so it
+    // cannot be combined with movement captured before the interaction.
+    _lastReadingActivityAtMs = timestampMs;
+    _lastReadingLineProgressionAtMs = timestampMs;
+    _readingGazeWindow.clear();
   }
 
   double? _mouthOpenRatio(Face face) {
@@ -1549,6 +1738,18 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
     // ML Kit defines positive Euler X as looking upward.
     if (pitch >= upThreshold) return _AttentionState.lookingUp;
     if (pitch <= -downThreshold) return _AttentionState.lookingDown;
+    return null;
+  }
+
+  _AttentionState? _rawHorizontalDirectionFromHeadPose(double yaw) {
+    final leftThreshold = _isTrackingDirection(_AttentionState.lookingLeft)
+        ? headYawExitThreshold
+        : headYawEnterThreshold;
+    final rightThreshold = _isTrackingDirection(_AttentionState.lookingRight)
+        ? headYawExitThreshold
+        : headYawEnterThreshold;
+    if (yaw >= leftThreshold) return _AttentionState.lookingLeft;
+    if (yaw <= -rightThreshold) return _AttentionState.lookingRight;
     return null;
   }
 
@@ -1823,7 +2024,7 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
     _AttentionState.lookingDown =>
       'You are looking downward. Please return your attention to the screen.',
     _AttentionState.readingNotDetected =>
-      'Active reading was not detected. Please continue reading the document naturally, moving through each line at a comfortable pace.',
+      'You may not be focused on the reading material. Please continue when you are ready.',
   };
 
   String _recommendationFor(_AttentionState state) => switch (state) {

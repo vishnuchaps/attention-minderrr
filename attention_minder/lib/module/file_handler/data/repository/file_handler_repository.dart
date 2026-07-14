@@ -55,7 +55,6 @@ class FileHandlerRepository extends IFileHandlerRepository {
       print("Authorization: Bearer $accessToken");
       print("Feedback: $feedback");
 
-      // Note: According to Swagger, this is a GET endpoint with query params
       Response response = await _dio.get(
         saveFeedbackEndpoint,
         queryParameters: {'feedback': feedback},

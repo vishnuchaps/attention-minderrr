@@ -122,7 +122,8 @@ class _DocumentLoadError extends StatelessWidget {
   }
 }
 
-class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
+class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
+    with WidgetsBindingObserver {
   CameraController? _cameraController;
   NotificationService? _notificationService;
   // PDFViewController? _pdfController; // Unused
@@ -145,6 +146,10 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
   // String _lastFeedback = '';
   // List<String> _lastRecommendations = [];
   bool _isShowingAlert = false;
+  bool _hasAttentionAdvisory = false;
+  bool _didShowReadingAdvisory = false;
+  bool _pausedByLifecycle = false;
+  bool _isAppInForeground = true;
 
   // PDF tracking
   int _totalPages = 0;
@@ -163,6 +168,7 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _documentFuture = TreatmentDocumentLoader.load(widget.localPath);
     _initializeNotificationService();
     _initializeCamera();
@@ -171,6 +177,28 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted) _startAIMonitoring();
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _isAppInForeground = true;
+      if (_pausedByLifecycle) {
+        _pausedByLifecycle = false;
+        unawaited(_startAIMonitoring());
+      }
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _isAppInForeground = false;
+      if (_isAIMonitoringActive && !_pausedByLifecycle) {
+        _pausedByLifecycle = true;
+        unawaited(_stopAIMonitoring());
+      }
+    }
   }
 
   Future<void> _initializeNotificationService() async {
@@ -222,6 +250,10 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
   }
 
   Future<void> _startAIMonitoring() async {
+    if (!_isAppInForeground) {
+      _pausedByLifecycle = true;
+      return;
+    }
     if (!_isCameraInitialized) {
       // Retry if camera not ready yet
       Future.delayed(const Duration(seconds: 1), () {
@@ -263,10 +295,11 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
   void _onCameraFrame(CameraImage frame) {
     final now = DateTime.now();
     if (_isSendingFrame || now.isBefore(_nextFrameAt)) return;
-    // Reading saccades are much shorter than video-attention gestures. Four
-    // observations per second provides enough evidence for the PDF-only
-    // two-second reading decision window.
-    _nextFrameAt = now.add(const Duration(milliseconds: 250));
+    // Reading saccades are often shorter than 100 ms. A 250 ms cadence can
+    // sample only the fixations on either side and miss the movement entirely,
+    // especially on iOS. Request up to 10 observations per second; the
+    // in-flight guard below naturally applies backpressure on slower devices.
+    _nextFrameAt = now.add(const Duration(milliseconds: 100));
     _sendCameraFrame(frame);
   }
 
@@ -356,7 +389,21 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
         final uiSeverity =
             uiMessage?['severity']?.toString().toLowerCase().trim() ?? '';
         final uiAlertMessage = uiMessage?['message']?.toString().trim() ?? '';
-        final hasConfirmedLocalWarning = uiSeverity == 'warning';
+        final normalizedReason =
+            result['reason_code']?.toString().toUpperCase().trim() ?? '';
+        final hasConfirmedLocalWarning =
+            result['should_show_alert'] == true ||
+            uiSeverity == 'warning' ||
+            uiSeverity == 'critical' ||
+            uiSeverity == 'error' ||
+            uiSeverity == 'danger';
+        final advisoryContractValue = result['should_show_advisory'];
+        final hasLocalAdvisory = advisoryContractValue is bool
+            ? advisoryContractValue
+            : normalizedReason == 'READING_NOT_DETECTED';
+        if (!hasLocalAdvisory && !hasConfirmedLocalWarning) {
+          _didShowReadingAdvisory = false;
+        }
 
         // Extract feedback data
         final feedback = result['feedback'] as Map<String, dynamic>?;
@@ -372,7 +419,7 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
 
         // Determine if attention is good
         final bool isAttentionGood = widget.attentionMonitor != null
-            ? !hasConfirmedLocalWarning
+            ? !hasConfirmedLocalWarning && !hasLocalAdvisory
             : faceDetected &&
                   validationPassed &&
                   videoAttentive &&
@@ -397,6 +444,7 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
         // Update state
         setState(() {
           _attentionDetected = isAttentionGood;
+          _hasAttentionAdvisory = hasLocalAdvisory;
           // _lastFeedback = message;
           // _lastRecommendations = recommendations;
 
@@ -422,6 +470,7 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
         // 3. Attention is good
         if (_isShowingAlert) return;
         if (isAttentionGood) return;
+        if (hasLocalAdvisory && _didShowReadingAdvisory) return;
 
         final now = DateTime.now();
         if (_lastAlertTime != null &&
@@ -434,6 +483,8 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
         String alertMessage = '';
 
         if (widget.attentionMonitor != null) {
+          // Reading-pattern uncertainty is advisory-only. It must not cover
+          // the PDF or prevent a genuinely focused user from continuing.
           shouldPause = hasConfirmedLocalWarning;
           alertMessage = uiAlertMessage.isNotEmpty
               ? uiAlertMessage
@@ -468,6 +519,7 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
 
         // Show alert if needed
         if (shouldPause) {
+          if (hasLocalAdvisory) _didShowReadingAdvisory = true;
           _pauseCount++;
           _totalAlerts++;
           _lastAlertTime = now;
@@ -1434,6 +1486,7 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _cameraController?.dispose();
     _frameTimer?.cancel();
     _sessionTimer?.cancel();
@@ -1461,11 +1514,15 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
   Widget _buildReaderToolbar(BuildContext context) {
     final statusColor = !_isAIMonitoringActive
         ? const Color(0xFF6B7280)
+        : _hasAttentionAdvisory
+        ? const Color(0xFFD97706)
         : _attentionDetected
         ? const Color(0xFF15803D)
         : const Color(0xFFB42318);
     final statusText = !_isAIMonitoringActive
         ? 'Monitoring paused'
+        : _hasAttentionAdvisory
+        ? 'Check your focus'
         : _attentionDetected
         ? 'Monitoring active'
         : 'Attention needed';
@@ -1499,13 +1556,10 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen> {
             ),
             const SizedBox(width: 8),
             Semantics(
-              button: true,
+              button: false,
               label: statusText,
-              child: InkWell(
-                onTap: _isAIMonitoringActive
-                    ? _stopAIMonitoring
-                    : _startAIMonitoring,
-                borderRadius: BorderRadius.circular(999),
+              child: Tooltip(
+                message: 'Attention monitoring is required for this session',
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
