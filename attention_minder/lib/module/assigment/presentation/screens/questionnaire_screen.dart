@@ -14,7 +14,7 @@ class QuestionnaireScreen extends StatefulWidget {
   const QuestionnaireScreen({super.key, this.initialQuestionIndex = 0});
 
   @override
-  _QuestionnaireScreenState createState() => _QuestionnaireScreenState();
+  State<QuestionnaireScreen> createState() => _QuestionnaireScreenState();
 }
 
 class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
@@ -37,15 +37,36 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     context.read<AssignmentBloc>().add(GetTheQuestion());
   }
 
+  void _exitToDashboard() {
+    _replaceWithDashboard(Navigator.of(context));
+  }
+
+  void _replaceWithDashboard(NavigatorState navigator) {
+    // Start at the dashboard's default Home tab and remove the complete
+    // assessment flow. No system or in-app back action can reveal the
+    // questionnaire after this transition.
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LandingScreen()),
+      (_) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const LandingScreen()),
-        );
-        return false;
+    final navigator = Navigator.of(context);
+    return PopScope(
+      // Allow the native route pop so iOS edge-swipe and Android predictive
+      // back remain available. Once it completes, replace all remaining
+      // assessment routes with the Home dashboard.
+      canPop: navigator.canPop(),
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _replaceWithDashboard(navigator);
+          return;
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _replaceWithDashboard(navigator);
+        });
       },
       child: Scaffold(
         backgroundColor: const Color(0xFF020302),
@@ -205,12 +226,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
       children: [
         _roundIconButton(
           icon: Icons.arrow_back_ios_new_rounded,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const LandingScreen()),
-            );
-          },
+          onTap: _exitToDashboard,
         ),
         const Spacer(),
         UserProfileAvatar(
@@ -619,7 +635,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
 
   void _saveSelectedAnswers({required bool navigateToResult}) {
     final assessment = _selectedAnswers.entries.map((entry) {
-      return {"question": entry.key, "option": entry.value};
+      return {"question": entry.key, "response": entry.value};
     }).toList();
 
     context.read<AssignmentBloc>().add(

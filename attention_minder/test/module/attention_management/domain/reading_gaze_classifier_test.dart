@@ -40,6 +40,30 @@ void main() {
     );
   });
 
+  test('subtle coherent word scanning is not stationary', () {
+    expect(
+      classifier.isStationary(
+        _samples(
+          [0.000, 0.002, 0.004, 0.006, 0.008, 0.010],
+          [0.001, 0.002, 0.001, 0.002, 0.001, 0.002],
+        ),
+      ),
+      isFalse,
+    );
+  });
+
+  test('subtle coherent line progression is not stationary', () {
+    expect(
+      classifier.isStationary(
+        _samples(
+          [0.001, 0.002, 0.001, 0.002, 0.001, 0.002],
+          [0.000, 0.0015, 0.003, 0.0045, 0.006, 0.008],
+        ),
+      ),
+      isFalse,
+    );
+  });
+
   test('one landmark outlier does not make a fixed gaze active', () {
     expect(
       classifier.isStationary(

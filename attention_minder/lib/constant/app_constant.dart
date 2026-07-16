@@ -63,6 +63,11 @@ const String getArticlesUrlEndpoint = "articles/v1/list";
 const String getprogressCardEndpoint = "assessment/v1/self-assessment/progress";
 
 // ============================================================================
+// Goals ENDPOINTS
+// ============================================================================
+const String getGoalsEndpoint = "progresstracker/v1/progress-track/goals";
+
+// ============================================================================
 // PAYMENT ENDPOINTS
 // ============================================================================
 const String createCheckoutSessionEndpoint =
@@ -80,8 +85,7 @@ const String getResultofAIBasedEndpoint =
     "assessment/v1/ai-assessment/score-history?is_assessment=true";
 const String getManagementDashboardEndpoint =
     "assessment/v1/management/dashboard";
-    const String getWeeklyDetailEndpoint =
-    "assessment/v1/management/latest-week";
+const String getWeeklyDetailEndpoint = "assessment/v1/management/latest-week";
 const String getResultofQuestionnaireEndpoint =
     "assessment/v1/self-assessment/result-history";
 
@@ -125,6 +129,9 @@ String get saveAiAssessmentScoreUrl => baseUrl + saveAiAssessmentScoreEndpoint;
 String get getArticlesUrl => baseUrl + getArticlesUrlEndpoint;
 String get progressCardUrl => baseUrl + getprogressCardEndpoint;
 
+//goals
+String get getGoalsUrl => baseUrl + getGoalsEndpoint;
+
 // Payments
 String get createCheckoutSessionUrl => baseUrl + createCheckoutSessionEndpoint;
 String get createBillingPortalSessionUrl =>
@@ -137,5 +144,4 @@ String get getResultofQuestionnaireUrl =>
     baseUrl + getResultofQuestionnaireEndpoint;
 String get getManagementDashboardUrl =>
     baseUrl + getManagementDashboardEndpoint;
-    String get getweeklyDetailUrl=>
-    baseUrl + getWeeklyDetailEndpoint;
+String get getweeklyDetailUrl => baseUrl + getWeeklyDetailEndpoint;

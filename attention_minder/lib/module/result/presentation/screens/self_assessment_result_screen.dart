@@ -23,7 +23,6 @@ class _SelfAssessmentResultScreenState
   static const _blue = Color(0xFF1479FF);
   static const _green = Color(0xFF31C96B);
   static const _orange = Color(0xFFFF8A00);
-  static const _purple = Color(0xFF8A5CFF);
   static const _line = Color(0xFFE1E8F2);
 
   final AssignmentBloc _assignmentBloc = getIt<AssignmentBloc>();
@@ -54,7 +53,26 @@ class _SelfAssessmentResultScreenState
           bottom: false,
           child: BlocBuilder<AssignmentBloc, AssignmentState>(
             builder: (context, state) {
-              final result = _ResultViewData.fromState(state);
+              if (state is AssignmentInitial || state is AssignmentLoading) {
+                return const _ResultLoadingView();
+              }
+              if (state is FetchResultsFailed) {
+                return _ResultErrorView(
+                  message: state.error,
+                  onRetry: () => _assignmentBloc.add(FetchAssessmentResults()),
+                );
+              }
+              if (state is! FetchResultsSuccess) {
+                return const _ResultLoadingView();
+              }
+
+              final result = _ResultViewData.fromMap(state.resultsData);
+              if (result == null) {
+                return _ResultErrorView(
+                  message: 'The assessment result could not be read.',
+                  onRetry: () => _assignmentBloc.add(FetchAssessmentResults()),
+                );
+              }
 
               return LayoutBuilder(
                 builder: (context, constraints) {
@@ -82,20 +100,22 @@ class _SelfAssessmentResultScreenState
                           children: [
                             _TopBar(compact: compact),
                             SizedBox(height: compact ? 26 : 32),
-                            _SummaryCard(username: _username, compact: compact),
-                            SizedBox(height: compact ? 20 : 24),
-                            _OverallScoreCard(
-                              result: result,
-                              isLoading: state is AssignmentLoading,
+                            _SummaryCard(
+                              username: result.username ?? _username,
                               compact: compact,
                             ),
+                            SizedBox(height: compact ? 20 : 24),
+                            _OverallScoreCard(result: result, compact: compact),
                             SizedBox(height: compact ? 20 : 24),
                             _AttentionOverviewCard(
                               result: result,
                               compact: compact,
                             ),
                             SizedBox(height: compact ? 20 : 24),
-                            _RecommendationCard(compact: compact),
+                            _ScoreExplanationCard(
+                              result: result,
+                              compact: compact,
+                            ),
                             SizedBox(height: compact ? 18 : 22),
                             _ActionButtons(compact: compact),
                           ],
@@ -107,6 +127,61 @@ class _SelfAssessmentResultScreenState
               );
             },
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultLoadingView extends StatelessWidget {
+  const _ResultLoadingView();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: CircularProgressIndicator(
+        color: _SelfAssessmentResultScreenState._blue,
+      ),
+    );
+  }
+}
+
+class _ResultErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _ResultErrorView({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              size: 42,
+              color: _SelfAssessmentResultScreenState._orange,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: _type(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: _SelfAssessmentResultScreenState._muted,
+              ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+            ),
+          ],
         ),
       ),
     );
@@ -389,14 +464,9 @@ class _MiniBar extends StatelessWidget {
 
 class _OverallScoreCard extends StatelessWidget {
   final _ResultViewData result;
-  final bool isLoading;
   final bool compact;
 
-  const _OverallScoreCard({
-    required this.result,
-    required this.isLoading,
-    required this.compact,
-  });
+  const _OverallScoreCard({required this.result, required this.compact});
 
   @override
   Widget build(BuildContext context) {
@@ -437,11 +507,7 @@ class _OverallScoreCard extends StatelessWidget {
           SizedBox(
             width: compact ? 162 : 178,
             height: compact ? 162 : 178,
-            child: isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Colors.white),
-                  )
-                : _ScoreRing(score: score),
+            child: _ScoreRing(score: score),
           ),
           SizedBox(height: compact ? 22 : 26),
           Text(
@@ -468,7 +534,7 @@ class _OverallScoreCard extends StatelessWidget {
 }
 
 class _ScoreRing extends StatelessWidget {
-  final int score;
+  final double score;
 
   const _ScoreRing({required this.score});
 
@@ -492,7 +558,7 @@ class _ScoreRing extends StatelessWidget {
           text: TextSpan(
             children: [
               TextSpan(
-                text: score.toString(),
+                text: _formatScore(score),
                 style: _type(
                   fontSize: 58,
                   fontWeight: FontWeight.w900,
@@ -547,33 +613,22 @@ class _AttentionOverviewCard extends StatelessWidget {
           ),
           SizedBox(height: compact ? 22 : 26),
           _OverviewRow(
-            icon: Icons.visibility_outlined,
-            title: 'Inattention',
-            subtitle: 'Keep minimizing distractions',
-            value: result.inattentionText,
-            valueSuffix: 'times',
+            icon: Icons.fact_check_outlined,
+            title: 'Total Answer Score',
+            subtitle: 'Combined score from all answers',
+            value: result.rawTotalText,
             color: _SelfAssessmentResultScreenState._orange,
             background: const Color(0xFFEAF4FF),
             compact: compact,
           ),
           const _OverviewDivider(),
           _OverviewRow(
-            icon: Icons.track_changes_rounded,
-            title: 'Focus Duration',
-            subtitle: 'Total focused time',
-            value: result.focusDurationText,
+            icon: Icons.menu_book_outlined,
+            title: 'Reading & Focus Score',
+            subtitle: 'Reading and focus category total',
+            value: result.readFocusTotalText,
             color: _SelfAssessmentResultScreenState._green,
             background: const Color(0xFFEAF9EF),
-            compact: compact,
-          ),
-          const _OverviewDivider(),
-          _OverviewRow(
-            icon: Icons.trending_up_rounded,
-            title: 'Performance',
-            subtitle: 'Better than last time',
-            value: result.performanceText,
-            color: _SelfAssessmentResultScreenState._purple,
-            background: const Color(0xFFF1E8FF),
             compact: compact,
           ),
         ],
@@ -587,7 +642,6 @@ class _OverviewRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final String value;
-  final String? valueSuffix;
   final Color color;
   final Color background;
   final bool compact;
@@ -597,7 +651,6 @@ class _OverviewRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.value,
-    this.valueSuffix,
     required this.color,
     required this.background,
     required this.compact,
@@ -658,18 +711,6 @@ class _OverviewRow extends StatelessWidget {
                 height: 1,
               ),
             ),
-            if (valueSuffix != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                valueSuffix!,
-                style: _type(
-                  fontSize: compact ? 10 : 12,
-                  fontWeight: FontWeight.w700,
-                  color: _SelfAssessmentResultScreenState._ink,
-                  height: 1,
-                ),
-              ),
-            ],
           ],
         ),
       ],
@@ -690,10 +731,11 @@ class _OverviewDivider extends StatelessWidget {
   }
 }
 
-class _RecommendationCard extends StatelessWidget {
+class _ScoreExplanationCard extends StatelessWidget {
+  final _ResultViewData result;
   final bool compact;
 
-  const _RecommendationCard({required this.compact});
+  const _ScoreExplanationCard({required this.result, required this.compact});
 
   @override
   Widget build(BuildContext context) {
@@ -722,7 +764,7 @@ class _RecommendationCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                'AI Recommendation',
+                'Understanding Your Score',
                 style: _type(
                   fontSize: compact ? 16 : 18,
                   fontWeight: FontWeight.w900,
@@ -732,61 +774,25 @@ class _RecommendationCard extends StatelessWidget {
             ],
           ),
           SizedBox(height: compact ? 18 : 22),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: RichText(
-                  text: TextSpan(
-                    style: _type(
-                      fontSize: compact ? 14 : 16,
-                      fontWeight: FontWeight.w700,
-                      color: _SelfAssessmentResultScreenState._ink,
-                      height: 1.6,
-                    ),
-                    children: [
-                      const TextSpan(text: "You'll feel better with "),
-                      TextSpan(
-                        text: 'attention\nmanagement',
-                        style: _type(
-                          fontSize: compact ? 14 : 16,
-                          fontWeight: FontWeight.w900,
-                          color: _SelfAssessmentResultScreenState._orange,
-                          height: 1.6,
-                        ),
-                      ),
-                      const TextSpan(text: ' using AI module\nwithin the app.'),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Material(
-                color: Colors.white,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  onTap: () {
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const LandingScreen(),
-                      ),
-                      (route) => false,
-                    );
-                  },
-                  customBorder: const CircleBorder(),
-                  child: SizedBox(
-                    width: compact ? 48 : 56,
-                    height: compact ? 48 : 56,
-                    child: Icon(
-                      Icons.arrow_forward_rounded,
-                      color: _SelfAssessmentResultScreenState._orange,
-                      size: compact ? 25 : 28,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          Text(
+            'Each answer contributes 0 to 4 points. Your total is normalized '
+            'to a score out of 10, with reverse scoring applied to applicable '
+            'questions.',
+            style: _type(
+              fontSize: compact ? 13 : 15,
+              fontWeight: FontWeight.w600,
+              color: _SelfAssessmentResultScreenState._ink,
+              height: 1.55,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Your result: ${result.resultLabel}',
+            style: _type(
+              fontSize: compact ? 14 : 16,
+              fontWeight: FontWeight.w900,
+              color: _SelfAssessmentResultScreenState._orange,
+            ),
           ),
         ],
       ),
@@ -868,110 +874,72 @@ class _ActionButtons extends StatelessWidget {
 }
 
 class _ResultViewData {
-  final int score;
-  final int inattention;
-  final int focusMinutes;
-  final int performanceDelta;
+  final double score;
+  final int rawTotal;
+  final double readFocusTotal;
+  final String resultLabel;
+  final String? username;
 
   const _ResultViewData({
     required this.score,
-    required this.inattention,
-    required this.focusMinutes,
-    required this.performanceDelta,
+    required this.rawTotal,
+    required this.readFocusTotal,
+    required this.resultLabel,
+    required this.username,
   });
 
-  factory _ResultViewData.fromState(AssignmentState state) {
-    if (state is FetchResultsSuccess) {
-      return _ResultViewData.fromMap(state.resultsData);
-    }
-
-    return const _ResultViewData(
-      score: 8,
-      inattention: 6,
-      focusMinutes: 80,
-      performanceDelta: 15,
-    );
-  }
-
-  factory _ResultViewData.fromMap(Map<String, dynamic> data) {
+  static _ResultViewData? fromMap(Map<String, dynamic> data) {
     final payload = data['data'] is Map ? data['data'] as Map : data;
+    final score = _numberFromPayload(payload, 'tenscore');
+    final rawTotal = _numberFromPayload(payload, 'raw_total');
+    final readFocusTotal = _numberFromPayload(payload, 'read_focus_total');
+    final resultLabel = payload['result']?.toString().trim() ?? '';
+
+    if (score == null ||
+        rawTotal == null ||
+        readFocusTotal == null ||
+        resultLabel.isEmpty) {
+      return null;
+    }
 
     return _ResultViewData(
-      score: _scoreFromPayload(payload),
-      inattention: _intFromPayload(payload, const [
-        'inattention',
-        'raw_total',
-        'inattention_count',
-      ], fallback: 6),
-      focusMinutes: _intFromPayload(payload, const [
-        'focus_duration',
-        'focus_minutes',
-        'program_duration',
-      ], fallback: 80),
-      performanceDelta: _intFromPayload(payload, const [
-        'performance',
-        'performance_delta',
-        'improvement',
-      ], fallback: 15),
+      score: score.clamp(0, 10).toDouble(),
+      rawTotal: rawTotal.round(),
+      readFocusTotal: readFocusTotal,
+      resultLabel: resultLabel,
+      username: _nonEmptyString(payload['user']),
     );
   }
 
-  String get focusLabel {
-    if (score >= 8) return 'Good Focus';
-    if (score >= 6) return 'Steady Focus';
-    return 'Needs Support';
-  }
+  String get focusLabel => resultLabel;
 
   String get scoreMessage {
-    if (score >= 8) return "You're doing well!";
-    if (score >= 6) return "You're making progress!";
-    return 'Small steps will help.';
+    if (score >= 9) return 'Satisfactory to strong attention skills';
+    if (score >= 7) return 'Mild attention difficulty';
+    if (score >= 5) return 'Moderate attention difficulty';
+    return 'Severe attention difficulty';
   }
 
-  String get inattentionText => inattention.toString().padLeft(2, '0');
+  String get rawTotalText => rawTotal.toString();
 
-  String get focusDurationText {
-    final hours = focusMinutes ~/ 60;
-    final minutes = focusMinutes % 60;
-    if (hours <= 0) return '${minutes}m';
-    return '${hours}h ${minutes.toString().padLeft(2, '0')}m';
+  String get readFocusTotalText => _formatScore(readFocusTotal);
+
+  static double? _numberFromPayload(Map<dynamic, dynamic> payload, String key) {
+    final value = payload[key];
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
-  String get performanceText {
-    final sign = performanceDelta >= 0 ? '+' : '';
-    return '$sign$performanceDelta%';
-  }
-
-  static int _scoreFromPayload(Map<dynamic, dynamic> payload) {
-    final value =
-        payload['tenscore'] ??
-        payload['score'] ??
-        payload['total_score'] ??
-        payload['overall_score'];
-    if (value is num) return value.round().clamp(0, 10);
-    if (value is String) {
-      final parsed = num.tryParse(value);
-      if (parsed != null) return parsed.round().clamp(0, 10);
-    }
-    return 8;
-  }
-
-  static int _intFromPayload(
-    Map<dynamic, dynamic> payload,
-    List<String> keys, {
-    required int fallback,
-  }) {
-    for (final key in keys) {
-      final value = payload[key];
-      if (value is num) return value.round();
-      if (value is String) {
-        final parsed = num.tryParse(value);
-        if (parsed != null) return parsed.round();
-      }
-    }
-    return fallback;
+  static String? _nonEmptyString(dynamic value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
   }
 }
+
+String _formatScore(double value) => value == value.roundToDouble()
+    ? value.toInt().toString()
+    : value.toStringAsFixed(1);
 
 BoxDecoration _softCardDecoration({required double radius}) {
   return BoxDecoration(

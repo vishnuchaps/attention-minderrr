@@ -28,6 +28,8 @@ import 'package:attention_minder/module/attention_management/presentation/bloc/a
     as _i90;
 import 'package:attention_minder/module/attention_management/presentation/bloc/attention_management_bloc.dart'
     as _i730;
+import 'package:attention_minder/module/attention_management/presentation/bloc/goals_bloc.dart'
+    as _i419;
 import 'package:attention_minder/module/authentication/data/repository/authentication_repository.dart'
     as _i972;
 import 'package:attention_minder/module/authentication/data/repository/iauthentication_repository.dart'
@@ -119,6 +121,8 @@ extension GetItInjectableX on _i174.GetIt {
         () => _i220.FileHandlerBloc(gh<_i115.IFileHandlerRepository>()));
     gh.factory<_i90.AiAssessmentScoreBloc>(() =>
         _i90.AiAssessmentScoreBloc(gh<_i361.IAiAssessmentScoreRepository>()));
+    gh.factory<_i419.GoalsBloc>(
+        () => _i419.GoalsBloc(gh<_i361.IAiAssessmentScoreRepository>()));
     return this;
   }
 }

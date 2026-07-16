@@ -20,10 +20,7 @@ class LoginEvent extends AuthenticationEvent {
   final String email;
   final String password;
 
-  LoginEvent({
-    required this.email,
-    required this.password,
-  });
+  LoginEvent({required this.email, required this.password});
 }
 
 class ForgotPasswordEvent extends AuthenticationEvent {}
@@ -45,14 +42,17 @@ class OtpVerificationRequested extends AuthenticationEvent {
   OtpVerificationRequested({required this.email, required this.otp});
 }
 
+class ResendPasswordOtpRequested extends AuthenticationEvent {
+  final String email;
+
+  ResendPasswordOtpRequested({required this.email});
+}
+
 class ChangePasswordRequested extends AuthenticationEvent {
   final String email;
   final String newPassword;
 
-  ChangePasswordRequested({
-    required this.email,
-    required this.newPassword,
-  });
+  ChangePasswordRequested({required this.email, required this.newPassword});
 
   @override
   List<Object> get props => [email, newPassword];

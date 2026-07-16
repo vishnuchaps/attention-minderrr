@@ -1,7 +1,11 @@
 import 'dart:io';
 
 import 'package:attention_minder/Config/widgets/user_profile_avatar_widget.dart';
+import 'package:attention_minder/module/attention_management/data/model/goals_model.dart';
+import 'package:attention_minder/module/attention_management/presentation/bloc/goals_bloc.dart';
 import 'package:attention_minder/module/attention_management/presentation/screens/hybrid_video_treatment_screen.dart';
+import 'package:attention_minder/module/attention_management/presentation/widgets/personal_goals_dialog.dart';
+import 'package:attention_minder/module/attention_management/presentation/widgets/review_goals_dialog.dart';
 import 'package:attention_minder/module/file_handler/data/model/video_file_model.dart';
 import 'package:attention_minder/module/file_handler/presentation/bloc/file_handler_bloc.dart';
 import 'package:attention_minder/module/payments/presentation/screens/payment_screen.dart';
@@ -37,11 +41,16 @@ class _AttentionProgramOverviewScreenState
   int maxDay = 0;
   int selectedDay = 1;
   Map<int, List<VideoFile>> videosByDay = {};
+  GoalsResponse? _goalsResponse;
+  bool _videoDataLoaded = false;
+  bool _goalsDialogDecisionHandled = false;
+  bool _goalsDialogScheduled = false;
 
   @override
   void initState() {
     super.initState();
     context.read<FileHandlerBloc>().add(FetchFilesEvent(isManagement: true));
+    context.read<GoalsBloc>().add(const LoadGoalsRequested());
   }
 
   void _processVideoData(List<VideoFile> videos) {
@@ -71,6 +80,45 @@ class _AttentionProgramOverviewScreenState
     setState(() {
       isLoading = false;
       selectedDay = latestUnlockedDay;
+      _videoDataLoaded = true;
+    });
+    _maybeShowGoalsDialog();
+  }
+
+  void _handleGoalsState(GoalsState state) {
+    if (state is! GoalsLoadSuccess) return;
+    _goalsResponse = state.response;
+    _maybeShowGoalsDialog();
+  }
+
+  void _maybeShowGoalsDialog() {
+    if (!mounted ||
+        !_videoDataLoaded ||
+        _goalsResponse == null ||
+        _goalsDialogDecisionHandled ||
+        _goalsDialogScheduled) {
+      return;
+    }
+
+    final shouldShowPersonalGoal =
+        selectedDay == 1 && _goalsResponse?.isFirst == true;
+    final shouldShowGoalReview =
+        !shouldShowPersonalGoal && _goalsResponse?.isLast == true;
+    _goalsDialogDecisionHandled = true;
+    if (!shouldShowPersonalGoal && !shouldShowGoalReview) return;
+
+    _goalsDialogScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (shouldShowPersonalGoal) {
+        await showPersonalGoalsDialog(context);
+      } else {
+        await showReviewGoalsDialog(
+          context,
+          goals: _goalsResponse?.data ?? const <GoalData>[],
+        );
+      }
+      _goalsDialogScheduled = false;
     });
   }
 
@@ -117,24 +165,31 @@ class _AttentionProgramOverviewScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _pageBackground,
-      body: BlocListener<FileHandlerBloc, FileHandlerState>(
-        listener: (context, state) {
-          if (state is FilesLoadedSuccess) {
-            try {
-              _processVideoData(state.filesData);
-            } catch (e) {
-              setState(() {
-                isLoading = false;
-                errorMessage = 'Error loading videos: $e';
-              });
-            }
-          } else if (state is FileHandlerError) {
-            setState(() {
-              isLoading = false;
-              errorMessage = state.errorMessage;
-            });
-          }
-        },
+      body: MultiBlocListener(
+        listeners: [
+          BlocListener<FileHandlerBloc, FileHandlerState>(
+            listener: (context, state) {
+              if (state is FilesLoadedSuccess) {
+                try {
+                  _processVideoData(state.filesData);
+                } catch (e) {
+                  setState(() {
+                    isLoading = false;
+                    errorMessage = 'Error loading videos: $e';
+                  });
+                }
+              } else if (state is FileHandlerError) {
+                setState(() {
+                  isLoading = false;
+                  errorMessage = state.errorMessage;
+                });
+              }
+            },
+          ),
+          BlocListener<GoalsBloc, GoalsState>(
+            listener: (context, state) => _handleGoalsState(state),
+          ),
+        ],
         child: isLoading
             ? const Center(child: CircularProgressIndicator(color: _orange))
             : errorMessage != null
@@ -407,19 +462,41 @@ class _AttentionProgramOverviewScreenState
     );
   }
 
-  Widget _sectionTitle(String title) {
+  Widget _sectionTitle(String title, {VoidCallback? onTap}) {
+    final titleWidget = Text(
+      title,
+      style: _textStyle(
+        fontSize: 21,
+        fontWeight: FontWeight.w700,
+        color: _ink,
+        height: 1.15,
+      ),
+    );
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          title,
-          style: _textStyle(
-            fontSize: 21,
-            fontWeight: FontWeight.w700,
-            color: _ink,
-            height: 1.15,
+        if (onTap == null)
+          titleWidget
+        else
+          Semantics(
+            button: true,
+            label: 'Open $title goal review',
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 4,
+                  ),
+                  child: titleWidget,
+                ),
+              ),
+            ),
           ),
-        ),
       ],
     );
   }

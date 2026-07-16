@@ -20,6 +20,7 @@ class AuthenticationBloc
     on<LoginEvent>(_onLogin);
     on<ForgotPasswordRequested>(_onForgotPasswordRequested);
     on<OtpVerificationRequested>(_onOtpVerify);
+    on<ResendPasswordOtpRequested>(_onResendPasswordOtp);
     on<ChangePasswordRequested>(_onChangePassword);
     on<ResetAuthenticationEvent>(_onReset);
     on<LoginWithGoogleEvent>(_onGoogleLogin);
@@ -111,6 +112,25 @@ class AuthenticationBloc
       );
     } catch (e) {
       emit(OtpVerificationError(error: e.toString()));
+    }
+  }
+
+  Future<void> _onResendPasswordOtp(
+    ResendPasswordOtpRequested event,
+    Emitter<AuthenticationState> emit,
+  ) async {
+    emit(ResendPasswordOtpLoading());
+    try {
+      final response = await _authRepository.requestPasswordReset(
+        email: event.email,
+      );
+      emit(
+        ResendPasswordOtpSuccess(
+          message: response['message'] ?? 'A new verification code was sent.',
+        ),
+      );
+    } catch (error) {
+      emit(ResendPasswordOtpError(error: error.toString()));
     }
   }
 

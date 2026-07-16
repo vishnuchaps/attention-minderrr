@@ -15,10 +15,10 @@ class ReadingGazeClassifier {
   const ReadingGazeClassifier({
     this.minimumSamples = 5,
     this.minimumObservationDuration = const Duration(seconds: 2),
-    this.maximumStationaryHorizontalRange = 0.012,
-    this.maximumStationaryVerticalRange = 0.010,
-    this.minimumHorizontalCoherence = 0.45,
-    this.minimumVerticalCoherence = 0.60,
+    this.maximumStationaryHorizontalRange = 0.008,
+    this.maximumStationaryVerticalRange = 0.007,
+    this.minimumHorizontalCoherence = 0.50,
+    this.minimumVerticalCoherence = 0.65,
   });
 
   final int minimumSamples;

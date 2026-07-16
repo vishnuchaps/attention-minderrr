@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:attention_minder/module/assigment/presentation/bloc/assignment_bloc.dart';
+import 'package:attention_minder/core/connectivity/internet_connection_gate.dart';
 import 'package:attention_minder/module/attention_management/presentation/bloc/attention_management_bloc.dart';
 import 'package:attention_minder/module/attention_management/presentation/bloc/ai_assessment_score_bloc.dart';
+import 'package:attention_minder/module/attention_management/presentation/bloc/goals_bloc.dart';
 import 'package:attention_minder/module/file_handler/presentation/bloc/file_handler_bloc.dart';
 import 'package:attention_minder/module/home/presentation/bloc/progress_bloc.dart';
 import 'package:attention_minder/module/payments/presentation/screens/payment_result_screen.dart';
@@ -148,6 +150,7 @@ class _MyAppState extends State<MyApp> {
     final AiAssessmentScoreBloc aiAssessmentScoreBloc =
         getIt<AiAssessmentScoreBloc>();
     final FileHandlerBloc fileHandlerBloc = getIt<FileHandlerBloc>();
+    final GoalsBloc goalsBloc = getIt<GoalsBloc>();
     final ProgressBloc progressBloc = getIt<ProgressBloc>();
 
     return MultiBlocProvider(
@@ -158,13 +161,17 @@ class _MyAppState extends State<MyApp> {
         BlocProvider(create: (BuildContext context) => attentionManagementBloc),
         BlocProvider(create: (BuildContext context) => aiAssessmentScoreBloc),
         BlocProvider(create: (BuildContext context) => fileHandlerBloc),
-        BlocProvider(create: (BuildContext context) => fileHandlerBloc),
+        BlocProvider(create: (BuildContext context) => goalsBloc),
         BlocProvider(create: (BuildContext context) => progressBloc),
       ],
       child: MaterialApp(
         navigatorKey: appNavigatorKey,
         theme: AppTheme.lightTheme,
         debugShowCheckedModeBanner: false,
+        builder: (context, child) => InternetConnectionGate(
+          navigatorKey: appNavigatorKey,
+          child: child ?? const SizedBox.shrink(),
+        ),
         home: const SplashScreen(),
       ),
     );

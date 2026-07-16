@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:attention_minder/Config/widgets/custom_bottom_navigation.dart';
 import 'package:attention_minder/module/assigment/presentation/screens/assignment_screen.dart';
 import 'package:attention_minder/module/home/presentation/screens/home_screen.dart';
@@ -5,6 +7,7 @@ import 'package:attention_minder/module/management/presentation/screens/manageme
 import 'package:attention_minder/module/profile/presentation/bloc/profile_bloc.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../result/presentation/screens/result_screen.dart';
@@ -23,6 +26,8 @@ class _LandingScreenState extends State<LandingScreen> {
   int _currentIndex = 0;
   int _walkthroughStep = 0;
   bool _showWalkthrough = false;
+  bool _exitArmed = false;
+  Timer? _exitResetTimer;
 
   final _startAssessmentKey = GlobalKey();
   final _continueManagementKey = GlobalKey();
@@ -35,6 +40,52 @@ class _LandingScreenState extends State<LandingScreen> {
     super.initState();
     context.read<ProfileBloc>().add(GetTheProfileEvent());
     _loadWalkthroughPreference();
+  }
+
+  @override
+  void dispose() {
+    _exitResetTimer?.cancel();
+    super.dispose();
+  }
+
+  void _handleDashboardBack() {
+    if (_exitArmed) {
+      _exitResetTimer?.cancel();
+      SystemNavigator.pop(animated: true);
+      return;
+    }
+
+    _exitArmed = true;
+    _exitResetTimer?.cancel();
+    _exitResetTimer = Timer(const Duration(seconds: 2), () {
+      _exitArmed = false;
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            88 + MediaQuery.paddingOf(context).bottom,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          content: const Row(
+            children: [
+              Icon(Icons.info_outline_rounded, color: Colors.white, size: 19),
+              SizedBox(width: 10),
+              Expanded(child: Text('Press back again to exit')),
+            ],
+          ),
+        ),
+      );
   }
 
   void _onItemTapped(int index) {
@@ -135,30 +186,36 @@ class _LandingScreenState extends State<LandingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(child: _pages[_currentIndex]),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: CustomBottomNavigationBar(
-              selectedIndex: _currentIndex,
-              onItemTapped: _onItemTapped,
-              itemKeys: _navItemKeys,
-            ),
-          ),
-          if (_showWalkthrough)
-            Positioned.fill(
-              child: _HomeWalkthroughOverlay(
-                steps: _walkthroughSteps,
-                currentIndex: _walkthroughStep,
-                onNext: _nextWalkthroughStep,
-                onSkip: _completeWalkthrough,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _handleDashboardBack();
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            Positioned.fill(child: _pages[_currentIndex]),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: CustomBottomNavigationBar(
+                selectedIndex: _currentIndex,
+                onItemTapped: _onItemTapped,
+                itemKeys: _navItemKeys,
               ),
             ),
-        ],
+            if (_showWalkthrough)
+              Positioned.fill(
+                child: _HomeWalkthroughOverlay(
+                  steps: _walkthroughSteps,
+                  currentIndex: _walkthroughStep,
+                  onNext: _nextWalkthroughStep,
+                  onSkip: _completeWalkthrough,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
