@@ -1,4 +1,5 @@
 import 'package:attention_minder/Config/widgets/arrow_left_icon_widget.dart';
+import 'package:attention_minder/Config/widgets/default_profile_avatar.dart';
 import 'package:attention_minder/constant/app_constant.dart';
 import 'package:attention_minder/module/authentication/presentation/screens/login_screen.dart';
 import 'package:attention_minder/module/landing/presentation/screens/landing_screen.dart';
@@ -16,7 +17,9 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final bool requiresCompletion;
+
+  const ProfileScreen({super.key, this.requiresCompletion = false});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -82,6 +85,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         });
 
+        if (!mounted) return;
         context.read<ProfileBloc>().add(UpdateProfilePictureEvent(formData));
       }
     }
@@ -181,6 +185,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _saveProfile() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     int? id = prefs.getInt('userId');
     if (_formKey.currentState!.validate()) {
       final userData = {
@@ -225,7 +230,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _handleBackNavigation() async {
-    if (_shouldWarnBeforeLeaving) {
+    if (widget.requiresCompletion || _shouldWarnBeforeLeaving) {
       await showCompleteProfileWarning(context);
       return;
     }
@@ -246,13 +251,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void _openDashboard() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const LandingScreen()),
+      (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
 
     return PopScope(
-      canPop: !_shouldWarnBeforeLeaving,
+      canPop: !widget.requiresCompletion && !_shouldWarnBeforeLeaving,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         await _handleBackNavigation();
@@ -289,7 +301,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 );
 
                 Future.microtask(() {
-                  if (mounted) _leaveProfile();
+                  if (!mounted) return;
+                  if (widget.requiresCompletion) {
+                    _openDashboard();
+                  } else {
+                    _leaveProfile();
+                  }
                 });
               } else if (state is UpdateProfileFailed) {
                 messenger.clearSnackBars();
@@ -396,13 +413,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         label: "Gender",
                         value: gender,
                         items: genders,
+                        leadingIcon: Icons.person_outline_rounded,
                         validator: (value) {
                           if (value == null || value == 'Select gender') {
                             return 'Please select your gender';
                           }
                           return null;
                         },
-                        onChanged: (val) => gender = val!,
+                        onChanged: (val) => setState(() => gender = val),
                       ),
 
                       // Country dropdown
@@ -410,13 +428,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         label: "Country/Region",
                         value: country,
                         items: countries,
+                        leadingIcon: Icons.public_rounded,
                         validator: (value) {
                           if (value == null || value == 'Select country') {
                             return 'Please select your country';
                           }
                           return null;
                         },
-                        onChanged: (val) => country = val!,
+                        onChanged: (val) => setState(() => country = val),
                       ),
 
                       // Height field
@@ -515,40 +534,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildNextButton() {
-    return Center(
-      child: GestureDetector(
-        onTap: () {
-          // Handle next button action
-        },
-        child: Container(
-          height: 43,
-          width: 130,
-          decoration: BoxDecoration(
-            color: Colors.blue,
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: const Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  "Next",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                // Icon(IconlyLight.arrow_right, color: Colors.white)
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildProfileAvatar(double screenWidth) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.start,
@@ -593,15 +578,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     color: Colors.white,
                     shape: BoxShape.circle,
                   ),
-                  child: ClipOval(
-                    child: Image(
-                      image: _editableProfileImageProvider(),
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return _buildProfileImageFallback();
-                      },
-                    ),
-                  ),
+                  child: ClipOval(child: _buildEditableProfileImage()),
                 ),
               ),
               Positioned(
@@ -696,37 +673,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  ImageProvider _editableProfileImageProvider() {
+  Widget _buildEditableProfileImage() {
     if (_image != null) {
-      return FileImage(_image!);
+      return Image.file(
+        _image!,
+        width: 68,
+        height: 68,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            const DefaultProfileAvatar(size: 68),
+      );
     }
 
-    if (profileImageUrl != null && profileImageUrl!.isNotEmpty) {
+    if (_hasUploadedProfileImage) {
       final imageUrl = profileImageUrl!.startsWith('http')
           ? profileImageUrl!
           : Uri.parse(baseUrl).resolve(profileImageUrl!).toString();
 
-      return NetworkImage(imageUrl);
+      return Image.network(
+        imageUrl,
+        width: 68,
+        height: 68,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            const DefaultProfileAvatar(size: 68),
+      );
     }
 
-    return const AssetImage('asset/images/Ellipse 125.png');
+    return const DefaultProfileAvatar(size: 68);
   }
 
-  Widget _buildProfileImageFallback() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFEAF4FF), Color(0xFFB9DCFF)],
-        ),
-      ),
-      child: const Icon(
-        Icons.person_rounded,
-        size: 34,
-        color: Color(0xFF1F6FB8),
-      ),
-    );
+  bool get _hasUploadedProfileImage {
+    final imageUrl = profileImageUrl?.trim();
+    return imageUrl != null &&
+        imageUrl.isNotEmpty &&
+        !imageUrl.contains('Ellipse 125.png');
   }
 
   Widget _buildInputField({
@@ -846,37 +827,283 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String label,
     required String value,
     required List<String> items,
-    required Function(String?) onChanged,
+    required IconData leadingIcon,
+    required ValueChanged<String> onChanged,
     required FormFieldValidator<String?> validator,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400),
-          ),
-          const SizedBox(height: 5),
-          DropdownButtonFormField<String>(
-            value: value,
-            items: items
-                .map((item) => DropdownMenuItem(value: item, child: Text(item)))
-                .toList(),
-            onChanged: onChanged,
-            validator: validator,
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: const Color(0xFFF6F7FA),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide.none,
-              ),
+            style: const TextStyle(
+              color: Color(0xFF111827),
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(height: 7),
+          FormField<String>(
+            key: ValueKey('$label-$value'),
+            initialValue: value,
+            validator: validator,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            builder: (field) {
+              final isPlaceholder =
+                  field.value == null ||
+                  field.value!.toLowerCase().startsWith('select ');
+              final hasError = field.hasError;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () async {
+                        final selected = await _showSelectionSheet(
+                          title: label,
+                          selectedValue: field.value,
+                          items: items,
+                          leadingIcon: leadingIcon,
+                        );
+                        if (selected == null || !mounted) return;
+                        field.didChange(selected);
+                        onChanged(selected);
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        height: 56,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF6F8FB),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: hasError
+                                ? const Color(0xFFDC2626)
+                                : const Color(0xFFDCE3EC),
+                            width: hasError ? 1.3 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE8F2FF),
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Icon(
+                                leadingIcon,
+                                size: 19,
+                                color: const Color(0xFF2577C9),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                field.value ?? 'Select $label',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: isPlaceholder
+                                      ? const Color(0xFF8A93A6)
+                                      : const Color(0xFF1A2433),
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: Color(0xFF64748B),
+                              size: 23,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (field.errorText != null) ...[
+                    const SizedBox(height: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 12),
+                      child: Text(
+                        field.errorText!,
+                        style: const TextStyle(
+                          color: Color(0xFFDC2626),
+                          fontSize: 12,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
         ],
       ),
+    );
+  }
+
+  Future<String?> _showSelectionSheet({
+    required String title,
+    required String? selectedValue,
+    required List<String> items,
+    required IconData leadingIcon,
+  }) {
+    final selectableItems = items
+        .where((item) => !item.toLowerCase().startsWith('select '))
+        .toList(growable: false);
+
+    return showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      barrierColor: Colors.black.withValues(alpha: 0.38),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.72,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 42,
+                height: 4,
+                margin: const EdgeInsets.only(top: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD0D5DD),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F2FF),
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: Icon(
+                        leadingIcon,
+                        color: const Color(0xFF2577C9),
+                        size: 21,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Select $title',
+                            style: const TextStyle(
+                              color: Color(0xFF111827),
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Choose the option that best applies.',
+                            style: TextStyle(
+                              color: Color(0xFF6B7280),
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: Color(0xFFE7EBF0)),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
+                  itemCount: selectableItems.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 4),
+                  itemBuilder: (context, index) {
+                    final item = selectableItems[index];
+                    final isSelected = item == selectedValue;
+
+                    return Semantics(
+                      selected: isSelected,
+                      button: true,
+                      child: Material(
+                        color: isSelected
+                            ? const Color(0xFFEAF4FF)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => Navigator.pop(sheetContext, item),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 14,
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  leadingIcon,
+                                  size: 20,
+                                  color: isSelected
+                                      ? const Color(0xFF1976D2)
+                                      : const Color(0xFF667085),
+                                ),
+                                const SizedBox(width: 13),
+                                Expanded(
+                                  child: Text(
+                                    item,
+                                    style: TextStyle(
+                                      color: const Color(0xFF1F2937),
+                                      fontSize: 15,
+                                      fontWeight: isSelected
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                if (isSelected)
+                                  const Icon(
+                                    Icons.check_circle_rounded,
+                                    size: 21,
+                                    color: Color(0xFF1976D2),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -932,7 +1159,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFFF6F7FA),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.red.withOpacity(0.3)),
+            border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
           ),
           child: const Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -977,7 +1204,7 @@ class CompleteProfileWarningDialog extends StatelessWidget {
           border: Border.all(color: const Color(0xFF777777), width: 7),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(.18),
+              color: Colors.black.withValues(alpha: .18),
               blurRadius: 24,
               offset: const Offset(0, 10),
             ),
@@ -1034,8 +1261,8 @@ class CompleteProfileWarningDialog extends StatelessWidget {
 
                 const Text(
                   'To provide accurate attention assessments and\n'
-                  'age-appropriate activities, we recommend\n'
-                  'completing the profile now.',
+                  'age-appropriate activities, please complete\n'
+                  'the profile now.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13.6,

@@ -93,22 +93,18 @@ class ManagementResult {
 
   factory ManagementResult.fromJson(Map<String, dynamic> json) {
     return ManagementResult(
-      id: json['id'] as int?,
-      user: json['user'] as String?,
-      result: json['result'] as String?,
-      rawTotal: json['raw_total'] as int?,
-      tenScore: (json['tenscore'] as num?)?.toDouble(),
-      readFocusTotal: (json['read_focus_total'] as num?)?.toDouble(),
-      visualTrackingTotal: (json['visual_tracking_total'] as num?)?.toDouble(),
-      audioListeningTotal: (json['audio_listening_total'] as num?)?.toDouble(),
-      programDuration: json['program_duration'] as int?,
-      isCompleted: json['is_completed'] as bool?,
-      createdAt: json['created_at'] != null
-          ? DateTime.tryParse(json['created_at'])
-          : null,
-      completedAt: json['completed_at'] != null
-          ? DateTime.tryParse(json['completed_at'])
-          : null,
+      id: _asInt(json['id']),
+      user: _asText(json['user']),
+      result: _asText(json['result']),
+      rawTotal: _asInt(json['raw_total']),
+      tenScore: _asDouble(json['tenscore']),
+      readFocusTotal: _asDouble(json['read_focus_total']),
+      visualTrackingTotal: _asDouble(json['visual_tracking_total']),
+      audioListeningTotal: _asDouble(json['audio_listening_total']),
+      programDuration: _asInt(json['program_duration']),
+      isCompleted: _asBool(json['is_completed']),
+      createdAt: _asDateTime(json['created_at']),
+      completedAt: _asDateTime(json['completed_at']),
     );
   }
 
@@ -128,4 +124,32 @@ class ManagementResult {
       'completed_at': completedAt?.toIso8601String(),
     };
   }
+}
+
+int? _asInt(dynamic value) {
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+double? _asDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
+}
+
+bool? _asBool(dynamic value) {
+  if (value is bool) return value;
+  final normalized = value?.toString().trim().toLowerCase();
+  if (normalized == 'true' || normalized == '1') return true;
+  if (normalized == 'false' || normalized == '0') return false;
+  return null;
+}
+
+String? _asText(dynamic value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
+}
+
+DateTime? _asDateTime(dynamic value) {
+  if (value is DateTime) return value;
+  return DateTime.tryParse(value?.toString() ?? '');
 }

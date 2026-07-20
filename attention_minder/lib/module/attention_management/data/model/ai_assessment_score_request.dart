@@ -1,6 +1,7 @@
 class AiAssessmentScoreRequest {
   const AiAssessmentScoreRequest({
     required this.fileId,
+    required this.contentType,
     required this.isAssessment,
     required this.finalScore,
     required this.attentionEngagementRate,
@@ -22,9 +23,13 @@ class AiAssessmentScoreRequest {
     required this.lowLightFrameCount,
     required this.eyesClosedCount,
     required this.gazeWarningCount,
-  });
+  }) : assert(
+         contentType == 'pdf' || contentType == 'video',
+         'contentType must be either pdf or video',
+       );
 
   final int fileId;
+  final String contentType;
   final bool isAssessment;
   final int finalScore;
   final double attentionEngagementRate;
@@ -49,6 +54,7 @@ class AiAssessmentScoreRequest {
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'file_id': fileId,
+    'content_type': contentType,
     'is_assessment': isAssessment,
     'final_score': finalScore,
     'attention_engagement_rate': attentionEngagementRate,

@@ -6,6 +6,7 @@ import 'package:attention_minder/module/attention_management/presentation/screen
 import 'package:attention_minder/module/attention_management/presentation/screens/video_treatment_screen.dart';
 import 'package:attention_minder/module/attention_management/domain/temporal_attention_filter.dart';
 import 'package:attention_minder/module/attention_management/domain/management_session_scorer.dart';
+import 'package:attention_minder/module/attention_management/domain/reading_attention_calculator.dart';
 import 'package:attention_minder/module/attention_management/domain/reading_gaze_classifier.dart';
 import 'package:attention_minder/module/file_handler/data/model/video_file_model.dart';
 import 'package:camera/camera.dart';
@@ -200,6 +201,8 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
   final bool _isIOSPlatform;
   final bool _normalizeMirroredFrontCameraSemantics;
   final FaceDetector _detector;
+  final ReadingAttentionCalculator _readingAttentionCalculator =
+      ReadingAttentionCalculator();
   mp.FaceDetectorProcessor? _meshFaceDetector;
   mp.FaceMeshProcessor? _faceMeshProcessor;
   mp.FaceMeshInferencePipeline? _faceMeshPipeline;
@@ -266,6 +269,9 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
   int _brightnessSampleCount = 0;
   double _gazeQualityTotal = 0;
   int _gazeQualitySampleCount = 0;
+  double _gazeRatioTotal = 0;
+  int _gazeRatioSampleCount = 0;
+  double _drowsyStateTotal = 0;
   double _pitchTotal = 0;
   double _yawTotal = 0;
   double _rollTotal = 0;
@@ -464,6 +470,21 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
       mouthOpenRatio: mouthOpenRatio,
       nowMs: now,
     );
+    final managementGazeRatio = _managementGazeRatio(irisSample);
+    final readingCalculation = requireReadingPattern
+        ? _readingAttentionCalculator.update(
+            timestampMs: now,
+            gazeRatio: managementGazeRatio,
+            drowsyState: rawEyesClosed || yawning ? 0.8 : 0.2,
+            pitch: pitch,
+            yaw: yaw,
+            faceCount: faces.isNotEmpty
+                ? faces.length
+                : irisSample != null
+                ? 1
+                : 0,
+          )
+        : null;
     final gazeOffset = _processIrisSample(
       irisSample: irisSample,
       headYaw: yaw,
@@ -560,35 +581,10 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
                       ? _AttentionState.yawning
                       : directionalState ?? _AttentionState.focused));
 
-    if (requireReadingPattern) {
-      final readingNotDetected = _updateReadingPattern(
-        gazeOffset:
-            gazeOffset ??
-            (irisSample != null &&
-                    irisSample.confidence >= minimumIrisConfidence
-                ? _IrisGazeOffset(
-                    horizontal: irisSample.horizontalRatio,
-                    vertical: irisSample.verticalRatio,
-                  )
-                : null),
-        usesCalibratedGaze: gazeOffset != null,
-        timestampMs: now,
-        isEligible:
-            nextState == _AttentionState.focused &&
-            // The horizontal off-screen detector deliberately starts a
-            // sustained candidate before it is allowed to warn. A normal
-            // reading saccade can briefly enter that candidate near a line
-            // edge. Do not feed those same frames into the stationary-reading
-            // classifier: doing so lets tentative side-gaze evidence become a
-            // false READING_NOT_DETECTED alert even though neither detector
-            // has independently established inattention.
-            _directionCandidate == null &&
-            faceVisible &&
-            !rawEyesClosed,
-      );
-      if (nextState == _AttentionState.focused && readingNotDetected) {
-        nextState = _AttentionState.readingNotDetected;
-      }
+    if (requireReadingPattern &&
+        nextState == _AttentionState.focused &&
+        readingCalculation?.triggerFeedback == true) {
+      nextState = _AttentionState.readingNotDetected;
     }
 
     // Do not emit warnings while the camera exposure, face models, and
@@ -606,22 +602,27 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
       nextState = _AttentionState.focused;
     }
 
+    final attentiveForCalculation = requireReadingPattern
+        ? readingCalculation?.engaged == true
+        : nextState == _AttentionState.focused;
     _recordFrameMetrics(
       face: face,
       faceVisible: faceVisible,
       irisSample: irisSample,
       gazeOffset: gazeOffset,
+      gazeRatio: managementGazeRatio,
       brightness: _latestBrightness,
       pitch: pitch,
       yaw: yaw,
       roll: roll,
       mouthOpenRatio: mouthOpenRatio,
       eyesClosed: eyesClosed,
+      drowsyState: rawEyesClosed || yawning ? 0.8 : 0.2,
       lowLight: lowLightState != null,
-      state: nextState,
+      attentiveForCalculation: attentiveForCalculation,
     );
     _sessionScorer.recordFrame(
-      attentive: nextState == _AttentionState.focused,
+      attentive: attentiveForCalculation,
       timestampMs: now,
     );
 
@@ -646,9 +647,8 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
 
     final attentive = nextState == _AttentionState.focused;
     final readingUncertain = nextState == _AttentionState.readingNotDetected;
-    final readingInactivityMs = _lastReadingActivityAtMs == null
-        ? 0
-        : now - _lastReadingActivityAtMs!;
+    final readingInactivityMs =
+        ((readingCalculation?.inattentionDurationSeconds ?? 0) * 1000).round();
     final shouldShowAlert = !attentive;
     // Alert recovery must describe the current frame, not the temporally held
     // warning state. The hold is useful for preventing warning flicker during
@@ -750,7 +750,7 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
         'reading_pattern_required': requireReadingPattern,
         'reading_pattern_detected':
             !requireReadingPattern ||
-            nextState != _AttentionState.readingNotDetected,
+            readingCalculation?.readingFocused == true,
       },
       'engagement': {
         'video_attentive': attentive,
@@ -808,6 +808,10 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
         'iris_filtered_ratio': _filteredIrisRatio,
         'vertical_iris_filtered_ratio': _filteredVerticalIrisRatio,
         'iris_calibration_samples': _irisCalibrationSamples.length,
+        'management_gaze_ratio': managementGazeRatio,
+        'reading_gaze_frequency_hz': readingCalculation?.gazeFrequencyHz,
+        'reading_gaze_amplitude': readingCalculation?.gazeAmplitude,
+        'reading_engagement_state': readingCalculation?.state.name,
         'vertical_iris_calibration_samples':
             _verticalIrisCalibrationSamples.length,
         'iris_gaze_offset': gazeOffset?.horizontal,
@@ -828,12 +832,17 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
             minimumDirectionalDistractionDuration.inMilliseconds,
         'maximum_detector_observation_gap_ms':
             maximumDetectorObservationGap.inMilliseconds,
-        'reading_pattern_grace_ms': readingPatternGracePeriod.inMilliseconds,
-        'maximum_reading_pause_ms': maximumReadingPause.inMilliseconds,
+        'reading_window_ms':
+            _readingAttentionCalculator.readingWindow.inMilliseconds,
+        'reading_inattention_limit_ms':
+            _readingAttentionCalculator.inattentionLimit.inMilliseconds,
+        'reading_minimum_amplitude':
+            _readingAttentionCalculator.minimumReadingAmplitude,
+        'reading_minimum_frequency_hz':
+            _readingAttentionCalculator.minimumReadingFrequencyHz,
+        'reading_maximum_frequency_hz':
+            _readingAttentionCalculator.maximumReadingFrequencyHz,
         'reading_inactivity_ms': readingInactivityMs,
-        'reading_alert_threshold_ms': _readingAlertThresholdMs(now),
-        'last_reading_activity_ms': _lastReadingActivityAtMs,
-        'last_confirmed_reading_evidence_ms': _lastConfirmedReadingEvidenceAtMs,
         'last_content_interaction_ms': _lastContentInteractionAtMs,
         'direction_candidate': _directionCandidate == null
             ? null
@@ -856,24 +865,40 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
     };
   }
 
+  double? _managementGazeRatio(_IrisGazeSample? sample) {
+    if (sample == null || sample.confidence < minimumIrisConfidence) {
+      return null;
+    }
+
+    // management.py measures left-white-pixels / right-white-pixels. The
+    // on-device model gives the iris position inside the eye as 0..1, so the
+    // equivalent odds ratio preserves the same centre value (1.0), direction
+    // and threshold scale without requiring raw camera pixels on the backend.
+    final irisPosition = sample.horizontalRatio.clamp(0.001, 0.999);
+    return irisPosition / (1 - irisPosition);
+  }
+
   void _recordFrameMetrics({
     required Face? face,
     required bool faceVisible,
     required _IrisGazeSample? irisSample,
     required _IrisGazeOffset? gazeOffset,
+    required double? gazeRatio,
     required _BrightnessSample? brightness,
     required double pitch,
     required double yaw,
     required double roll,
     required double? mouthOpenRatio,
     required bool eyesClosed,
+    required double drowsyState,
     required bool lowLight,
-    required _AttentionState state,
+    required bool attentiveForCalculation,
   }) {
-    if (state != _AttentionState.focused) _badFrameCount++;
+    if (!attentiveForCalculation) _badFrameCount++;
     if (lowLight) _lowLightFrameCount++;
     if (eyesClosed) _eyesClosedFrameCount++;
     if (faceVisible) _faceDetectedFrameCount++;
+    _drowsyStateTotal += drowsyState;
 
     if (face != null) {
       _pitchTotal += pitch;
@@ -901,6 +926,10 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
       _gazeQualityTotal += 1 - deviation;
       _gazeQualitySampleCount++;
     }
+    if (gazeRatio != null && gazeRatio.isFinite) {
+      _gazeRatioTotal += gazeRatio;
+      _gazeRatioSampleCount++;
+    }
   }
 
   double _average(double total, int count) => count == 0 ? 0 : total / count;
@@ -920,8 +949,9 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
       inattentionDuration: _sessionScorer.inattentionDurationSeconds,
       maximumInattentionDuration:
           _sessionScorer.maximumInattentionDurationSeconds,
-      gazeRatioAverage: _average(_gazeQualityTotal, _gazeQualitySampleCount),
-      drowsyState: _eyesClosedFrameCount / frameCount,
+      gazeRatioAverage: _average(_gazeRatioTotal, _gazeRatioSampleCount),
+      gazeQualityAverage: _average(_gazeQualityTotal, _gazeQualitySampleCount),
+      drowsyState: _drowsyStateTotal / frameCount,
       brightnessScore: _average(_brightnessTotal, _brightnessSampleCount),
       pitch: _average(_pitchTotal, _poseSampleCount),
       yaw: _average(_yawTotal, _poseSampleCount),
@@ -933,6 +963,25 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
       lowLightFrameCount: _lowLightFrameCount,
       eyesClosedCount: _eyesClosedFrameCount,
       gazeWarningCount: _gazeWarningCount,
+      readingEngagementRate: requireReadingPattern
+          ? _readingAttentionCalculator.readingEngagementRate
+          : 0,
+      readingFocusedFrames: requireReadingPattern
+          ? _readingAttentionCalculator.readingFrames
+          : 0,
+      watchingVideoFrames: requireReadingPattern
+          ? _readingAttentionCalculator.videoAttentiveFrames
+          : 0,
+      idleDistractedFrames: requireReadingPattern
+          ? _readingAttentionCalculator.totalFrames -
+                _readingAttentionCalculator.engagedFrames
+          : 0,
+      readingGazeFrequencyHz: requireReadingPattern
+          ? _readingAttentionCalculator.averageGazeFrequencyHz
+          : 0,
+      readingGazeAmplitude: requireReadingPattern
+          ? _readingAttentionCalculator.averageGazeAmplitude
+          : 0,
     );
   }
 
@@ -1379,6 +1428,9 @@ class HybridMlKitAttentionMonitor implements VideoAttentionMonitor {
     );
   }
 
+  // Retained temporarily for binary-comparison diagnostics with older
+  // sessions; production PDF classification uses ReadingAttentionCalculator.
+  // ignore: unused_element
   bool _updateReadingPattern({
     required _IrisGazeOffset? gazeOffset,
     required bool usesCalibratedGaze,

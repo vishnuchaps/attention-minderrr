@@ -7,6 +7,9 @@ import 'package:attention_minder/module/result/data/model/assessment_history_mod
 import 'package:attention_minder/module/result/data/model/dashboard_management.dart';
 import 'package:attention_minder/module/result/data/model/questionnaire_result_model.dart';
 import 'package:attention_minder/module/result/data/model/result_weeklydetail.dart';
+import 'package:attention_minder/module/result/presentation/screens/ai_assessment_result_detail_screen.dart';
+import 'package:attention_minder/module/result/presentation/screens/management_session_detail_screen.dart';
+import 'package:attention_minder/module/result/presentation/screens/single_result_screen.dart';
 import 'package:attention_minder/module/result/services/result_pdf_exporter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -943,7 +946,14 @@ class _HistoryCard extends StatelessWidget {
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        onTap: () {},
+        onTap: () {
+          final destination = item.questionnaireResult != null
+              ? SingleResultScreen(result: item.questionnaireResult!)
+              : AiAssessmentResultDetailScreen(result: item.aiResult!);
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute<void>(builder: (_) => destination));
+        },
         borderRadius: BorderRadius.circular(12),
         child: Ink(
           padding: EdgeInsets.fromLTRB(
@@ -1992,7 +2002,12 @@ class _WeekDetailsSectionState extends State<_WeekDetailsSection> {
             duration: const Duration(milliseconds: 220),
             child: _selectedDay == null || !_selectedDay!.containsData
                 ? _NoDayData(key: ValueKey(_selectedDay?.date))
-                : _DailyScoreCard(
+                : _selectedDay!.sessions.isEmpty
+                ? _DailyScoreCard(
+                    key: ValueKey(_selectedDay!.date),
+                    day: _selectedDay!,
+                  )
+                : ManagementDaySessionsCard(
                     key: ValueKey(_selectedDay!.date),
                     day: _selectedDay!,
                   ),
@@ -2191,6 +2206,332 @@ class _DayChip extends StatelessWidget {
       ),
     );
   }
+}
+
+class ManagementDaySessionsCard extends StatelessWidget {
+  final ManagementDay day;
+
+  const ManagementDaySessionsCard({super.key, required this.day});
+
+  @override
+  Widget build(BuildContext context) {
+    final date = day.parsedDate;
+    final sessions = day.sessions;
+    final totalSeconds = day.safeDurationSeconds;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 360;
+        return Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(compact ? 12 : 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFDDE5EF)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                date == null
+                    ? 'Selected day'
+                    : '${_fullWeekdayLabel(date)}, ${_shortDate(date)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _type(
+                  fontSize: compact ? 15 : 17,
+                  fontWeight: FontWeight.w800,
+                  color: _ResultScreenState._ink,
+                  height: 1.15,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${sessions.length} ${sessions.length == 1 ? 'session' : 'sessions'}'
+                '  •  ${_durationText(totalSeconds)} total',
+                style: _type(
+                  fontSize: compact ? 11 : 13,
+                  fontWeight: FontWeight.w600,
+                  color: _ResultScreenState._muted,
+                ),
+              ),
+              SizedBox(height: compact ? 14 : 16),
+              const Divider(height: 1, color: Color(0xFFDDE5EF)),
+              SizedBox(height: compact ? 12 : 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Sessions',
+                      style: _type(
+                        fontSize: compact ? 14 : 15,
+                        fontWeight: FontWeight.w800,
+                        color: _ResultScreenState._ink,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'SCORE',
+                    style: _type(
+                      fontSize: compact ? 10 : 11,
+                      fontWeight: FontWeight.w700,
+                      color: _ResultScreenState._muted,
+                    ),
+                  ),
+                  SizedBox(width: compact ? 22 : 26),
+                ],
+              ),
+              SizedBox(height: compact ? 8 : 10),
+              if (sessions.isEmpty)
+                const _NoSessionRows()
+              else
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFFDDE5EF)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      for (var index = 0; index < sessions.length; index++) ...[
+                        _ManagementSessionRow(
+                          session: sessions[index],
+                          compact: compact,
+                        ),
+                        if (index != sessions.length - 1)
+                          const Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: Color(0xFFE4EAF2),
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+              if (sessions.isNotEmpty) ...[
+                SizedBox(height: compact ? 12 : 14),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: compact ? 16 : 18,
+                      color: _ResultScreenState._muted,
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        'Tap a session to view its details',
+                        style: _type(
+                          fontSize: compact ? 10 : 12,
+                          fontWeight: FontWeight.w600,
+                          color: _ResultScreenState._muted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _NoSessionRows extends StatelessWidget {
+  const _NoSessionRows();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFE),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        'No individual session details are available for this day.',
+        textAlign: TextAlign.center,
+        style: _type(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: _ResultScreenState._muted,
+        ),
+      ),
+    );
+  }
+}
+
+class _ManagementSessionRow extends StatelessWidget {
+  final ManagementSession session;
+  final bool compact;
+
+  const _ManagementSessionRow({required this.session, required this.compact});
+
+  @override
+  Widget build(BuildContext context) {
+    final isPdf = session.isPdf;
+    final accent = isPdf
+        ? _ResultScreenState._orange
+        : _ResultScreenState._blue;
+    final background = isPdf
+        ? const Color(0xFFFFF3E5)
+        : const Color(0xFFE8F3FF);
+
+    return Material(
+      color: Colors.white,
+      child: InkWell(
+        onTap: () => _showManagementSessionDetails(context, session),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 10 : 12,
+            vertical: compact ? 11 : 13,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: compact ? 36 : 40,
+                height: compact ? 36 : 40,
+                decoration: BoxDecoration(
+                  color: background,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isPdf ? Icons.description_outlined : Icons.play_arrow_rounded,
+                  color: accent,
+                  size: compact ? 20 : 23,
+                ),
+              ),
+              SizedBox(width: compact ? 9 : 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: compact ? 6 : 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: background,
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                          child: Text(
+                            isPdf ? 'PDF' : 'VIDEO',
+                            style: _type(
+                              fontSize: compact ? 9 : 10,
+                              fontWeight: FontWeight.w800,
+                              color: accent,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            _sessionTitle(session),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: _type(
+                              fontSize: compact ? 12 : 14,
+                              fontWeight: FontWeight.w800,
+                              color: _ResultScreenState._ink,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${_sessionTime(session)}  •  ${_sessionDuration(session)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _type(
+                        fontSize: compact ? 10 : 12,
+                        fontWeight: FontWeight.w600,
+                        color: _ResultScreenState._muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: compact ? 8 : 12),
+              Text(
+                _formatScore(session.safeScore),
+                style: _type(
+                  fontSize: compact ? 17 : 20,
+                  fontWeight: FontWeight.w900,
+                  color: _ResultScreenState._ink,
+                ),
+              ),
+              SizedBox(width: compact ? 3 : 5),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: compact ? 19 : 22,
+                color: _ResultScreenState._muted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _sessionTitle(ManagementSession session) {
+  final title = session.title?.trim();
+  if (title != null && title.isNotEmpty) {
+    return title.replaceFirst(
+      RegExp(r'\.(pdf|mp4|mov|m4v)$', caseSensitive: false),
+      '',
+    );
+  }
+  return session.isPdf ? 'Reading Focus' : 'Focus Training';
+}
+
+String _sessionTime(ManagementSession session) {
+  final label = session.timeLabel?.trim();
+  if (label != null && label.isNotEmpty) return label;
+  final date = session.createdAt?.toLocal();
+  if (date == null) return 'Time unavailable';
+  final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+  final minute = date.minute.toString().padLeft(2, '0');
+  return '$hour:$minute ${date.hour < 12 ? 'AM' : 'PM'}';
+}
+
+String _sessionDuration(ManagementSession session) {
+  final label = session.durationLabel?.trim();
+  final normalized = label?.toLowerCase();
+  final isRoundedToZero =
+      session.safeDurationSeconds > 0 &&
+      const {'0m', '0 min', '0 mins', '0 minutes'}.contains(normalized);
+  return label == null || label.isEmpty || isRoundedToZero
+      ? _durationText(session.safeDurationSeconds)
+      : label;
+}
+
+String _durationText(double seconds) {
+  final rounded = seconds.round().clamp(0, 86400);
+  final minutes = rounded ~/ 60;
+  final remainingSeconds = rounded % 60;
+  if (minutes == 0) return '$remainingSeconds sec';
+  if (remainingSeconds == 0) return '$minutes min';
+  return '$minutes min $remainingSeconds sec';
+}
+
+void _showManagementSessionDetails(
+  BuildContext context,
+  ManagementSession session,
+) {
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => ManagementSessionDetailScreen(session: session),
+    ),
+  );
 }
 
 class _DailyScoreCard extends StatelessWidget {
@@ -2671,6 +3012,8 @@ class _AssessmentHistoryItem {
   final String time;
   final int score;
   final String scoreLabel;
+  final ManagementResult? questionnaireResult;
+  final AssessmentHistoryItem? aiResult;
 
   const _AssessmentHistoryItem({
     required this.type,
@@ -2679,6 +3022,8 @@ class _AssessmentHistoryItem {
     required this.time,
     required this.score,
     required this.scoreLabel,
+    this.questionnaireResult,
+    this.aiResult,
   });
 
   String get typeLabel => type.segmentLabel;
@@ -2759,6 +3104,7 @@ class _ResultDashboardData {
       scoreLabel: item.result?.trim().isNotEmpty == true
           ? item.result!.trim()
           : _labelForScore(score),
+      questionnaireResult: item,
     );
   }
 
@@ -2781,6 +3127,7 @@ class _ResultDashboardData {
       time: created == null ? '--:--' : _formatTime(created),
       score: score,
       scoreLabel: _labelForScore(score),
+      aiResult: item,
     );
   }
 

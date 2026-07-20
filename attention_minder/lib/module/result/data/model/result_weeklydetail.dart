@@ -23,9 +23,7 @@ class WeeklyManagementResponse {
       statusCode: _parseInt(json['status_code']),
       message: _parseString(json['message']),
       data: json['data'] is Map<String, dynamic>
-          ? WeeklyManagementData.fromJson(
-              json['data'] as Map<String, dynamic>,
-            )
+          ? WeeklyManagementData.fromJson(json['data'] as Map<String, dynamic>)
           : null,
       errors: json['errors'] is Map
           ? Map<String, dynamic>.from(json['errors'] as Map)
@@ -84,9 +82,7 @@ class WeeklyManagementData {
 
     return WeeklyManagementData(
       links: json['links'] is Map<String, dynamic>
-          ? PaginationLinks.fromJson(
-              json['links'] as Map<String, dynamic>,
-            )
+          ? PaginationLinks.fromJson(json['links'] as Map<String, dynamic>)
           : null,
       count: _parseInt(json['count']),
       page: _parseInt(json['page']),
@@ -133,10 +129,7 @@ class PaginationLinks {
   final String? next;
   final String? previous;
 
-  const PaginationLinks({
-    this.next,
-    this.previous,
-  });
+  const PaginationLinks({this.next, this.previous});
 
   factory PaginationLinks.fromJson(Map<String, dynamic>? json) {
     if (json == null) {
@@ -150,16 +143,10 @@ class PaginationLinks {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'next': next,
-      'previous': previous,
-    };
+    return {'next': next, 'previous': previous};
   }
 
-  PaginationLinks copyWith({
-    String? next,
-    String? previous,
-  }) {
+  PaginationLinks copyWith({String? next, String? previous}) {
     return PaginationLinks(
       next: next ?? this.next,
       previous: previous ?? this.previous,
@@ -191,14 +178,9 @@ class WeeklyResult {
       weekNumber: _parseInt(json['week_number']),
       startDate: _parseString(json['start_date']),
       endDate: _parseString(json['end_date']),
-      days: _parseList(
-        json['days'],
-        (item) => ManagementDay.fromJson(item),
-      ),
+      days: _parseList(json['days'], (item) => ManagementDay.fromJson(item)),
       selectedDay: json['selected_day'] is Map<String, dynamic>
-          ? ManagementDay.fromJson(
-              json['selected_day'] as Map<String, dynamic>,
-            )
+          ? ManagementDay.fromJson(json['selected_day'] as Map<String, dynamic>)
           : null,
     );
   }
@@ -246,6 +228,7 @@ class ManagementDay {
   final double? durationSeconds;
   final String? durationLabel;
   final int? sessionsCount;
+  final List<ManagementSession> sessions;
 
   const ManagementDay({
     this.date,
@@ -259,6 +242,7 @@ class ManagementDay {
     this.durationSeconds,
     this.durationLabel,
     this.sessionsCount,
+    this.sessions = const [],
   });
 
   factory ManagementDay.fromJson(Map<String, dynamic>? json) {
@@ -278,6 +262,7 @@ class ManagementDay {
       durationSeconds: _parseDouble(json['duration_seconds']),
       durationLabel: _parseString(json['duration_label']),
       sessionsCount: _parseInt(json['sessions_count']),
+      sessions: _parseManagementSessions(json),
     );
   }
 
@@ -294,12 +279,13 @@ class ManagementDay {
       'duration_seconds': durationSeconds,
       'duration_label': durationLabel,
       'sessions_count': sessionsCount,
+      'sessions': sessions.map((item) => item.toJson()).toList(),
     };
   }
 
   DateTime? get parsedDate => _parseDateTime(date);
 
-  bool get containsData => hasData ?? false;
+  bool get containsData => sessions.isNotEmpty || (hasData ?? false);
 
   double get safeTotalScore => totalScore ?? 0.0;
 
@@ -307,9 +293,15 @@ class ManagementDay {
 
   double get safeAttentionScore => attentionScore ?? 0.0;
 
-  double get safeDurationSeconds => durationSeconds ?? 0.0;
+  double get safeDurationSeconds =>
+      durationSeconds ??
+      sessions.fold<double>(
+        0,
+        (total, item) => total + item.safeDurationSeconds,
+      );
 
-  int get safeSessionsCount => sessionsCount ?? 0;
+  int get safeSessionsCount =>
+      sessions.isNotEmpty ? sessions.length : sessionsCount ?? 0;
 
   ManagementDay copyWith({
     String? date,
@@ -323,6 +315,7 @@ class ManagementDay {
     double? durationSeconds,
     String? durationLabel,
     int? sessionsCount,
+    List<ManagementSession>? sessions,
   }) {
     return ManagementDay(
       date: date ?? this.date,
@@ -336,8 +329,151 @@ class ManagementDay {
       durationSeconds: durationSeconds ?? this.durationSeconds,
       durationLabel: durationLabel ?? this.durationLabel,
       sessionsCount: sessionsCount ?? this.sessionsCount,
+      sessions: sessions ?? this.sessions,
     );
   }
+}
+
+class ManagementSession {
+  final int? id;
+  final String? contentType;
+  final String? title;
+  final DateTime? createdAt;
+  final String? timeLabel;
+  final double? score;
+  final double? durationSeconds;
+  final String? durationLabel;
+  final Map<String, dynamic> rawData;
+
+  const ManagementSession({
+    this.id,
+    this.contentType,
+    this.title,
+    this.createdAt,
+    this.timeLabel,
+    this.score,
+    this.durationSeconds,
+    this.durationLabel,
+    this.rawData = const {},
+  });
+
+  factory ManagementSession.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const ManagementSession();
+
+    final fileData = _mapFromFirstValue(json, const [
+      'file',
+      'file_details',
+      'content',
+    ]);
+    final rawCreatedAt = _firstValue(json, const [
+      'completed_at',
+      'created_at',
+      'started_at',
+      'updated_at',
+      'date',
+    ]);
+
+    return ManagementSession(
+      id: _parseInt(
+        _firstValue(json, const ['id', 'score_id', 'management_id']),
+      ),
+      contentType: _parseString(
+        _firstValue(json, const ['content_type', 'media_type', 'type']),
+      ),
+      title: _parseString(
+        _firstValue(json, const [
+              'title',
+              'file_title',
+              'file_name',
+              'name',
+              'content_name',
+            ]) ??
+            _firstValue(fileData, const [
+              'title',
+              'file_title',
+              'file_name',
+              'name',
+            ]),
+      ),
+      createdAt: rawCreatedAt == null
+          ? null
+          : DateTime.tryParse(rawCreatedAt.toString()),
+      timeLabel: _parseString(json['time_label']),
+      score: _parseDouble(
+        _firstValue(json, const [
+          'final_score',
+          'total_score',
+          'score',
+          'final_attention_score_percent',
+        ]),
+      ),
+      durationSeconds: _parseDouble(
+        _firstValue(json, const [
+          'session_duration_seconds',
+          'duration_seconds',
+          'duration',
+        ]),
+      ),
+      durationLabel: _parseString(json['duration_label']),
+      rawData: Map<String, dynamic>.unmodifiable(json),
+    );
+  }
+
+  bool get isPdf => contentType?.trim().toLowerCase() == 'pdf';
+
+  bool get isVideo => contentType?.trim().toLowerCase() == 'video';
+
+  double get safeScore => score ?? 0;
+
+  double get safeDurationSeconds => durationSeconds ?? 0;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    ...rawData,
+    'id': id,
+    'content_type': contentType,
+    'title': title,
+    'created_at': createdAt?.toIso8601String(),
+    'time_label': timeLabel,
+    'final_score': score,
+    'session_duration_seconds': durationSeconds,
+    'duration_label': durationLabel,
+  };
+}
+
+List<ManagementSession> _parseManagementSessions(Map<String, dynamic> json) {
+  final combined = <ManagementSession>[];
+  final general = _firstValue(json, const [
+    'sessions',
+    'managements',
+    'management_scores',
+    'session_details',
+    'results',
+  ]);
+  combined.addAll(
+    _parseList(general, (item) => ManagementSession.fromJson(item)) ?? const [],
+  );
+
+  void addTypedSessions(List<String> keys, String type) {
+    final rawItems = _firstValue(json, keys);
+    if (rawItems is! List) return;
+    for (final rawItem in rawItems.whereType<Map>()) {
+      final item = Map<String, dynamic>.from(rawItem);
+      item.putIfAbsent('content_type', () => type);
+      combined.add(ManagementSession.fromJson(item));
+    }
+  }
+
+  addTypedSessions(const [
+    'pdf_sessions',
+    'pdf_managements',
+    'pdf_results',
+  ], 'pdf');
+  addTypedSessions(const [
+    'video_sessions',
+    'video_managements',
+    'video_results',
+  ], 'video');
+  return List<ManagementSession>.unmodifiable(combined);
 }
 
 List<T>? _parseList<T>(
@@ -350,12 +486,24 @@ List<T>? _parseList<T>(
 
   return value
       .whereType<Map>()
-      .map(
-        (item) => converter(
-          Map<String, dynamic>.from(item),
-        ),
-      )
+      .map((item) => converter(Map<String, dynamic>.from(item)))
       .toList();
+}
+
+dynamic _firstValue(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value != null) return value;
+  }
+  return null;
+}
+
+Map<String, dynamic> _mapFromFirstValue(
+  Map<String, dynamic> json,
+  List<String> keys,
+) {
+  final value = _firstValue(json, keys);
+  return value is Map ? Map<String, dynamic>.from(value) : const {};
 }
 
 String? _parseString(dynamic value) {

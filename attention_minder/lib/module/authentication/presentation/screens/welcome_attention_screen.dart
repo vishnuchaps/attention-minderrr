@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'package:attention_minder/constant/asset_path.dart';
-import 'package:attention_minder/module/landing/presentation/screens/landing_screen.dart';
 import 'package:attention_minder/module/profile/presentation/screens/profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +14,18 @@ class WelcomeAttentionScreen extends StatefulWidget {
 class _WelcomeAttentionScreenState extends State<WelcomeAttentionScreen> {
   String? selectedUser;
 
+  void _handleBackAttempt() {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text('Please finish setting up your account to continue.'),
+        ),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
@@ -24,60 +35,66 @@ class _WelcomeAttentionScreenState extends State<WelcomeAttentionScreen> {
 
     final sheetTop = isSmall ? 205.0 : h * 0.265;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF9EBC6),
-      body: Stack(
-        children: [
-          Positioned(
-            top: 34,
-            left: -w * .22,
-            child: CustomPaint(
-              size: Size(w * .65, 170),
-              painter: YellowLinePainter(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _handleBackAttempt();
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF9EBC6),
+        body: Stack(
+          children: [
+            Positioned(
+              top: 34,
+              left: -w * .22,
+              child: CustomPaint(
+                size: Size(w * .65, 170),
+                painter: YellowLinePainter(),
+              ),
             ),
-          ),
 
-          Positioned(
-            top: isSmall ? 62 : 78,
-            left: w * .30,
-            child: Transform.rotate(
-              angle: -0.035,
-              child: Container(
-                width: min(w * .42, 175),
-                height: isSmall ? 135 : 145,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(9),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(.08),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Image.asset(
-                  onBoardingImage,
-                  height: h * 0.35,
-                  fit: BoxFit.contain,
+            Positioned(
+              top: isSmall ? 62 : 78,
+              left: w * .30,
+              child: Transform.rotate(
+                angle: -0.035,
+                child: Container(
+                  width: min(w * .42, 175),
+                  height: isSmall ? 135 : 145,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(9),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: .08),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Image.asset(
+                    onBoardingImage,
+                    height: h * 0.35,
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
             ),
-          ),
 
-          Positioned(
-            top: sheetTop,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _BottomSheetContent(
-              selectedUser: selectedUser,
-              onChanged: (value) {
-                setState(() => selectedUser = value);
-              },
+            Positioned(
+              top: sheetTop,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _BottomSheetContent(
+                selectedUser: selectedUser,
+                onChanged: (value) {
+                  setState(() => selectedUser = value);
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -203,7 +220,8 @@ class _BottomSheetContent extends StatelessWidget {
                         Navigator.pushReplacement(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => ProfileScreen(),
+                            builder: (context) =>
+                                const ProfileScreen(requiresCompletion: true),
                           ),
                         );
                       },

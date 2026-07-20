@@ -48,7 +48,7 @@ class _ProfileGateScreenState extends State<ProfileGateScreen> {
               _openNextScreen(
                 state.data.isCompleted
                     ? const LandingScreen()
-                    : ProfileScreen(),
+                    : const ProfileScreen(requiresCompletion: true),
               );
             }
           },

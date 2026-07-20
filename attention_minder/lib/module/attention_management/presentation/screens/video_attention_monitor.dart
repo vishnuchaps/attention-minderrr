@@ -26,6 +26,13 @@ class AttentionSessionMetrics {
     required this.lowLightFrameCount,
     required this.eyesClosedCount,
     required this.gazeWarningCount,
+    this.gazeQualityAverage = 0,
+    this.readingEngagementRate = 0,
+    this.readingFocusedFrames = 0,
+    this.watchingVideoFrames = 0,
+    this.idleDistractedFrames = 0,
+    this.readingGazeFrequencyHz = 0,
+    this.readingGazeAmplitude = 0,
   });
 
   final int finalScore;
@@ -50,6 +57,13 @@ class AttentionSessionMetrics {
   final int lowLightFrameCount;
   final int eyesClosedCount;
   final int gazeWarningCount;
+  final double gazeQualityAverage;
+  final double readingEngagementRate;
+  final int readingFocusedFrames;
+  final int watchingVideoFrames;
+  final int idleDistractedFrames;
+  final double readingGazeFrequencyHz;
+  final double readingGazeAmplitude;
 }
 
 /// Pluggable monitoring strategy used by [VideoTreatmentScreen].

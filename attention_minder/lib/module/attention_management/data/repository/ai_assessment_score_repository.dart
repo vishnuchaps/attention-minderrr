@@ -25,7 +25,7 @@ class AiAssessmentScoreRepository implements IAiAssessmentScoreRepository {
         'Your session has expired. Please sign in again.',
       );
     }
-
+    print("going request ${request.toJson()}");
     try {
       final response = await _dio.post<dynamic>(
         saveAiAssessmentScoreUrl,

@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:attention_minder/module/attention_management/data/model/pdf_reading_score_request.dart';
+import 'package:attention_minder/module/attention_management/presentation/bloc/ai_assessment_score_bloc.dart';
+import 'package:attention_minder/module/attention_management/presentation/screens/video_treatment_screen.dart';
 import 'package:attention_minder/module/attention_management/presentation/screens/video_attention_monitor.dart';
 import 'package:attention_minder/module/file_handler/data/model/video_file_model.dart';
 import 'package:attention_minder/service/notification_service.dart';
@@ -9,7 +12,8 @@ import 'package:attention_minder/service/treatment_document_loader.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_pdfview/flutter_pdfview.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 class PdfTreatmentScreen extends StatefulWidget {
   final int day;
@@ -126,7 +130,11 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
     with WidgetsBindingObserver {
   CameraController? _cameraController;
   NotificationService? _notificationService;
-  // PDFViewController? _pdfController; // Unused
+  final PdfViewerController _pdfController = PdfViewerController();
+
+  static const double _minimumZoom = 1;
+  static const double _maximumZoom = 3;
+  static const double _zoomStep = 0.25;
 
   bool _isCameraInitialized = false;
   bool _isAIMonitoringActive = false;
@@ -150,10 +158,14 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
   bool _didShowReadingAdvisory = false;
   bool _pausedByLifecycle = false;
   bool _isAppInForeground = true;
+  BuildContext? _attentionDialogContext;
 
   // PDF tracking
   int _totalPages = 0;
   int _currentPage = 0;
+  double _zoomLevel = _minimumZoom;
+  bool _hasReachedLastPage = false;
+  TreatmentDocumentType? _documentType;
   late final Future<LoadedTreatmentDocument> _documentFuture;
 
   // Message history for session summary
@@ -161,6 +173,7 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
   DateTime? _lastAlertTime;
   int _consecutiveGoodFrames = 0;
   bool _wasInAlert = false;
+  bool _isHandlingCompletion = false;
 
   // Latest validation state
   Map<String, dynamic>? _latestValidationResult;
@@ -170,6 +183,11 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _documentFuture = TreatmentDocumentLoader.load(widget.localPath);
+    _documentFuture.then<void>((document) {
+      if (mounted) {
+        setState(() => _documentType = document.type);
+      }
+    }, onError: (Object _, StackTrace _) {});
     _initializeNotificationService();
     _initializeCamera();
     _startSessionTimer();
@@ -374,6 +392,7 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
 
         // Store latest validation result
         _latestValidationResult = result;
+        _autoDismissAttentionAlertIfReady();
 
         // Extract all relevant data
         final bool faceDetected = result['face_detected'] ?? false;
@@ -538,12 +557,21 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
 
     final result = _latestValidationResult!;
     if (widget.attentionMonitor != null) {
-      // A reading-pattern warning is raised after sustained inactivity, but
-      // the blocking dialog covers the document so the user cannot prove a
-      // new scan while it is open. The monitor exposes physical readiness
-      // separately, allowing Continue once face, eyes, lighting, and gaze are
-      // corrected without weakening the reading alert itself.
-      return result['ready_to_continue'] == true;
+      final uiMessage = result['ui_message'] as Map<String, dynamic>?;
+      final severity =
+          uiMessage?['severity']?.toString().toLowerCase().trim() ?? '';
+      final warningStillActive =
+          result['should_show_alert'] == true ||
+          severity == 'warning' ||
+          severity == 'critical' ||
+          severity == 'error' ||
+          severity == 'danger';
+
+      // Automatic recovery must be stricter than the previous manual button.
+      // A centered head can make physical readiness true while the eyes are
+      // still looking left or right. Keep the alert visible until both the
+      // readiness checks pass and the detector clears the warning episode.
+      return result['ready_to_continue'] == true && !warningStillActive;
     }
     final bool faceDetected = result['face_detected'] ?? false;
     final bool validationPassed = result['validation_passed'] ?? false;
@@ -569,6 +597,23 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
     return isReady;
   }
 
+  void _autoDismissAttentionAlertIfReady() {
+    final dialogContext = _attentionDialogContext;
+    if (!_isShowingAlert ||
+        dialogContext == null ||
+        !dialogContext.mounted ||
+        !_verifyUserReady()) {
+      return;
+    }
+
+    _attentionDialogContext = null;
+    setState(() {
+      _isShowingAlert = false;
+      _consecutiveGoodFrames = 0;
+    });
+    Navigator.of(dialogContext).pop();
+  }
+
   void _showAttentionAlert(String message, List<String> recommendations) async {
     if (_isShowingAlert) return;
 
@@ -585,11 +630,17 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
 
     if (!mounted) return;
 
-    showDialog(
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
+      builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
+          _attentionDialogContext = dialogContext;
+          if (_verifyUserReady()) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _autoDismissAttentionAlertIfReady();
+            });
+          }
           // Update dialog every 500ms to show real-time readiness status
           Future.delayed(const Duration(milliseconds: 500), () {
             if (mounted && _isShowingAlert) {
@@ -806,117 +857,11 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
                 ],
               ),
             ),
-            actions: [
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    // Verify user is ready via WebSocket data
-                    if (_verifyUserReady()) {
-                      // User is ready - resume
-                      setState(() {
-                        _isShowingAlert = false;
-                        _consecutiveGoodFrames = 0;
-                      });
-                      Navigator.pop(context);
-                    } else {
-                      // User is NOT ready - show feedback
-                      final latestResult = _latestValidationResult;
-                      String feedbackMessage = 'Please ensure:';
-                      List<String> issues = [];
-
-                      if (latestResult != null) {
-                        if (!(latestResult['face_detected'] ?? false)) {
-                          issues.add('✗ Your face is visible in the camera');
-                        }
-                        if (!(latestResult['validation_passed'] ?? false)) {
-                          issues.add('✗ You are properly positioned');
-                        }
-                        final concentrationScore =
-                            latestResult['concentration_score'] ?? 0;
-                        if (concentrationScore < 5) {
-                          issues.add(
-                            '✗ Your concentration level is adequate (currently: $concentrationScore/10)',
-                          );
-                        }
-                        final engagement =
-                            latestResult['engagement'] as Map<String, dynamic>?;
-                        if (engagement != null &&
-                            !(engagement['video_attentive'] ?? false)) {
-                          issues.add('✗ You are looking at the screen');
-                        }
-                      }
-
-                      if (issues.isEmpty) {
-                        issues.add('Please wait a moment and try again');
-                      }
-
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                feedbackMessage,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              ...issues.map(
-                                (issue) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Text(
-                                    issue,
-                                    style: const TextStyle(fontSize: 13),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          backgroundColor: const Color(0xFFEF5350),
-                          duration: const Duration(seconds: 4),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-
-                      // Play TTS feedback
-                      await _notificationService?.playAttentionAlert(
-                        customMessage:
-                            'Not ready yet. ${issues.first.replaceAll('✗ ', '')}',
-                        playSound: false,
-                        speakMessage: true,
-                      );
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _verifyUserReady()
-                        ? const Color(0xFF43E267)
-                        : const Color(0xFF4B535A),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: Text(
-                    _verifyUserReady()
-                        ? 'Continue Document'
-                        : 'Correct Your Focus to Continue',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ],
           );
         },
       ),
     );
+    _attentionDialogContext = null;
   }
 
   Widget _buildAlertCameraPanel({required bool isReady}) {
@@ -1137,345 +1082,175 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
     };
   }
 
-  void _showCompletionDialog() async {
-    await widget.attentionMonitor?.complete(
-      totalDuration: Duration(seconds: _sessionDuration),
-    );
-    // Analyze session history
-    final sessionAnalysis = _analyzeSessionHistory();
-    final localMetrics = widget.attentionMonitor?.sessionMetrics;
+  AttentionSessionMetrics get _pdfScoreMetrics {
+    final monitorMetrics = widget.attentionMonitor?.sessionMetrics;
+    if (monitorMetrics != null) return monitorMetrics;
 
-    // Play completion sound and message
-    await _notificationService?.playSessionComplete();
+    final analysis = _analyzeSessionHistory();
+    final totalFrames = (analysis['totalFrames'] as num?)?.toInt() ?? 0;
+    final attentionRate =
+        (analysis['attentionPercentage'] as num?)?.toDouble() ?? 0;
+    final focusedFrames = totalFrames == 0
+        ? 0
+        : (totalFrames * attentionRate / 100).round();
 
-    final double attentionPercentage = localMetrics != null
-        ? localMetrics.attentionEngagementRate
-        : (sessionAnalysis['attentionPercentage'] ?? 0.0);
-    final double avgConcentration = attentionPercentage / 10;
-    final double faceDetectedPercentage = localMetrics != null
-        ? localMetrics.faceDetectionRate
-        : (sessionAnalysis['faceDetectedPercentage'] ?? 0.0);
-    final double maximumInattention = localMetrics != null
-        ? localMetrics.maximumInattentionDuration
-        : (sessionAnalysis['totalInattentionTime'] ?? 0.0);
-    final int displayScore = attentionPercentage.round().clamp(0, 100);
-    await _notificationService?.playEncouragement(displayScore);
-
-    final String performanceLevel = displayScore >= 90
-        ? 'Excellent'
-        : displayScore >= 70
-        ? 'Good'
-        : displayScore >= 50
-        ? 'Fair'
-        : 'Needs Improvement';
-
-    final Color performanceColor = displayScore >= 90
-        ? const Color(0xFF66BB6A)
-        : displayScore >= 70
-        ? const Color(0xFF42A5F5)
-        : displayScore >= 50
-        ? const Color(0xFFFFA726)
-        : const Color(0xFFEF5350);
-
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: Colors.grey.shade900,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF66BB6A).withValues(alpha: 0.2),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.emoji_events,
-                color: Color(0xFFF7C14A),
-                size: 32,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Session Complete!',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Success message
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF66BB6A).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFF66BB6A).withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Text(
-                  'Great job completing Day ${widget.day} treatment session!',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Performance score
-              Center(
-                child: Column(
-                  children: [
-                    Text(
-                      'Performance',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade400,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      performanceLevel,
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: performanceColor,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    // Circular progress indicator
-                    SizedBox(
-                      width: 100,
-                      height: 100,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          CircularProgressIndicator(
-                            value: displayScore / 100,
-                            strokeWidth: 8,
-                            backgroundColor: Colors.grey.shade800,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              performanceColor,
-                            ),
-                          ),
-                          Text(
-                            '$displayScore%',
-                            style: const TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Session statistics
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade800,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    _buildSessionStat(
-                      'Pages',
-                      '$_totalPages',
-                      Icons.description_outlined,
-                    ),
-                    const Divider(height: 20, color: Colors.grey),
-                    _buildSessionStat(
-                      'Session Duration',
-                      _formatDuration(
-                        localMetrics?.sessionDurationSeconds ??
-                            _sessionDuration,
-                      ),
-                      Icons.timer_outlined,
-                    ),
-                    const Divider(height: 20, color: Colors.grey),
-                    _buildSessionStat(
-                      'Focus Alerts',
-                      '$_totalAlerts',
-                      Icons.warning_amber_outlined,
-                    ),
-                    const Divider(height: 20, color: Colors.grey),
-                    _buildSessionStat(
-                      'Pause Count',
-                      '$_pauseCount',
-                      Icons.pause_circle_outlined,
-                    ),
-                    const Divider(height: 20, color: Colors.grey),
-                    _buildSessionStat(
-                      'Avg Concentration',
-                      '${avgConcentration.toStringAsFixed(1)}/10',
-                      Icons.psychology_outlined,
-                    ),
-                    const Divider(height: 20, color: Colors.grey),
-                    _buildSessionStat(
-                      'Face Detection',
-                      '${faceDetectedPercentage.toStringAsFixed(0)}%',
-                      Icons.face_outlined,
-                    ),
-                    const Divider(height: 20, color: Colors.grey),
-                    _buildSessionStat(
-                      'Attention Rate',
-                      '${attentionPercentage.toStringAsFixed(0)}%',
-                      Icons.visibility_outlined,
-                    ),
-                    if (maximumInattention > 0) ...[
-                      const Divider(height: 20, color: Colors.grey),
-                      _buildSessionStat(
-                        'Max Inattention',
-                        '${maximumInattention.toStringAsFixed(1)}s',
-                        Icons.timer_off_outlined,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Common issues detected
-              if ((sessionAnalysis['mostCommonIssues'] as List).isNotEmpty) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade800,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.info_outline,
-                            color: Color(0xFFFFA726),
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Areas for Improvement',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey.shade200,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      ...(sessionAnalysis['mostCommonIssues'] as List).map(
-                        (issue) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(
-                                Icons.arrow_right,
-                                color: Color(0xFFFFA726),
-                                size: 18,
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  issue.toString(),
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade300,
-                                    height: 1.3,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.pop(context);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF66BB6A),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text(
-                'Finish',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return AttentionSessionMetrics(
+      finalScore: _attentionScore.clamp(0, 100),
+      attentionEngagementRate: attentionRate.clamp(0, 100),
+      faceDetectionRate:
+          (analysis['faceDetectedPercentage'] as num?)?.toDouble() ?? 0,
+      averageConfidence: 0,
+      totalProcessedFrames: totalFrames,
+      sampledFrames: totalFrames,
+      sessionDurationSeconds: _sessionDuration,
+      inattentionDuration:
+          (analysis['totalInattentionTime'] as num?)?.toDouble() ?? 0,
+      maximumInattentionDuration:
+          (analysis['totalInattentionTime'] as num?)?.toDouble() ?? 0,
+      gazeRatioAverage: 0,
+      drowsyState: 0,
+      brightnessScore: 0,
+      pitch: 0,
+      yaw: 0,
+      roll: 0,
+      blinkRatio: 0,
+      yawnDistance: 0,
+      badFrameCount: totalFrames - focusedFrames,
+      blurryFrameCount: 0,
+      lowLightFrameCount: 0,
+      eyesClosedCount: 0,
+      gazeWarningCount: _totalAlerts,
+      readingEngagementRate: attentionRate.clamp(0, 100),
+      readingFocusedFrames: focusedFrames,
+      watchingVideoFrames: 0,
+      idleDistractedFrames: totalFrames - focusedFrames,
     );
   }
 
-  Widget _buildSessionStat(String label, String value, IconData icon) {
-    return Row(
-      children: [
-        Icon(icon, color: const Color(0xFFF7C14A), size: 20),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade300),
-          ),
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      ],
+  PdfReadingScoreRequest? _buildPdfScoreRequest() {
+    final fileId = widget.fileData.id;
+    if (fileId == null) return null;
+
+    return PdfReadingScoreRequest(
+      fileId: fileId,
+      isAssessment: false,
+      metrics: _pdfScoreMetrics,
     );
+  }
+
+  Future<void> _savePdfScoreAndExit(BuildContext dialogContext) async {
+    final request = _buildPdfScoreRequest();
+    if (request == null) {
+      _showError(
+        'Unable to save this reading session because its document ID is missing.',
+      );
+      return;
+    }
+
+    final bloc = context.read<AiAssessmentScoreBloc>();
+    if (bloc.state is AiAssessmentScoreSaving) return;
+
+    final result = bloc.stream.firstWhere(
+      (state) =>
+          state is AiAssessmentScoreSaveSuccess ||
+          state is AiAssessmentScoreSaveFailure,
+    );
+    bloc.add(SaveAiAssessmentScoreRequested(request));
+    final state = await result;
+    if (!mounted || !dialogContext.mounted) return;
+
+    if (state is AiAssessmentScoreSaveFailure) {
+      _showError(state.message);
+      return;
+    }
+
+    Navigator.of(dialogContext).pop();
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  void _showCompletionDialog() async {
+    if (_isHandlingCompletion ||
+        (_documentType == TreatmentDocumentType.pdf && !_hasReachedLastPage)) {
+      return;
+    }
+
+    _isHandlingCompletion = true;
+    try {
+      await widget.attentionMonitor?.complete(
+        totalDuration: Duration(seconds: _sessionDuration),
+      );
+      final metrics = _pdfScoreMetrics;
+
+      await _notificationService?.playSessionComplete();
+      await _notificationService?.playEncouragement(metrics.finalScore);
+      if (!mounted) return;
+
+      final score = metrics.finalScore.clamp(0, 100);
+      final performanceLevel = score >= 90
+          ? 'Excellent'
+          : score >= 70
+          ? 'Good'
+          : score >= 50
+          ? 'Fair'
+          : 'Needs Improvement';
+      final performanceColor = score >= 90
+          ? const Color(0xFF66BB6A)
+          : score >= 70
+          ? const Color(0xFF42A5F5)
+          : score >= 50
+          ? const Color(0xFFFFA726)
+          : const Color(0xFFEF5350);
+
+      await showGeneralDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        barrierColor: Colors.black,
+        transitionDuration: const Duration(milliseconds: 260),
+        pageBuilder: (dialogContext, animation, secondaryAnimation) {
+          return ManagementCompletionView(
+            sessionTitle: 'Reading Complete',
+            completionMessage:
+                'Great job completing Day ${widget.day} reading session!',
+            day: widget.day,
+            orderNumber: widget.fileData.orderNumber,
+            completedItemLabel: 'Pages read',
+            completedItemValue: _totalPages > 0 ? '$_totalPages' : 'Complete',
+            completedItemIcon: Icons.menu_book_outlined,
+            sessionDuration: _formatDuration(metrics.sessionDurationSeconds),
+            metricsCount: metrics.sampledFrames,
+            totalFrames: metrics.totalProcessedFrames,
+            avgConcentration: metrics.readingEngagementRate / 10,
+            faceDetectionPercentage: metrics.faceDetectionRate,
+            attentionPercentage: metrics.readingEngagementRate,
+            maxInattention: metrics.maximumInattentionDuration,
+            attentionMetricLabel: 'Reading focus',
+            fourthMetricLabel: 'Focused samples',
+            fourthMetricValue: '${metrics.readingFocusedFrames}',
+            fourthMetricIcon: Icons.auto_stories_outlined,
+            score: score,
+            performanceLevel: performanceLevel,
+            performanceColor: performanceColor,
+            onDone: () => _savePdfScoreAndExit(dialogContext),
+          );
+        },
+        transitionBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+            child: child,
+          );
+        },
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Failed to complete PDF reading session: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        _showError(
+          'Unable to complete this reading session. Please try again.',
+        );
+      }
+    } finally {
+      _isHandlingCompletion = false;
+    }
   }
 
   void _showError(String message) {
@@ -1491,6 +1266,7 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
     _frameTimer?.cancel();
     _sessionTimer?.cancel();
     _notificationService?.dispose();
+    _pdfController.dispose();
     unawaited(widget.attentionMonitor?.dispose());
     super.dispose();
   }
@@ -1628,30 +1404,124 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
           if (document.type == TreatmentDocumentType.docx) {
             return _DocxReader(text: document.text!);
           }
-          return PDFView(
-            filePath: widget.localPath,
-            enableSwipe: true,
-            swipeHorizontal: true,
-            autoSpacing: false,
-            pageFling: true,
-            pageSnap: true,
-            fitPolicy: FitPolicy.BOTH,
-            onRender: (pages) => setState(() => _totalPages = pages ?? 0),
-            onViewCreated: (controller) {},
-            onPageChanged: (page, total) {
-              widget.attentionMonitor?.recordContentInteraction();
-              setState(() => _currentPage = page ?? 0);
-            },
+          return Stack(
+            children: [
+              SfPdfViewer.file(
+                File(widget.localPath),
+                controller: _pdfController,
+                pageLayoutMode: PdfPageLayoutMode.single,
+                scrollDirection: PdfScrollDirection.horizontal,
+                enableDoubleTapZooming: true,
+                maxZoomLevel: _maximumZoom,
+                canShowScrollHead: false,
+                canShowScrollStatus: false,
+                canShowPaginationDialog: false,
+                onDocumentLoaded: (details) {
+                  final totalPages = details.document.pages.count;
+                  setState(() {
+                    _totalPages = totalPages;
+                    _currentPage = totalPages > 0 ? 1 : 0;
+                    _hasReachedLastPage = totalPages == 1;
+                  });
+                },
+                onPageChanged: (details) {
+                  widget.attentionMonitor?.recordContentInteraction();
+                  setState(() {
+                    _currentPage = details.newPageNumber;
+                    if (details.isLastPage) {
+                      _hasReachedLastPage = true;
+                    }
+                  });
+                },
+                onZoomLevelChanged: (details) {
+                  final zoom = details.newZoomLevel
+                      .clamp(_minimumZoom, _maximumZoom)
+                      .toDouble();
+                  if ((_zoomLevel - zoom).abs() > 0.001) {
+                    setState(() => _zoomLevel = zoom);
+                  }
+                },
+              ),
+              Positioned(right: 12, bottom: 12, child: _buildZoomControls()),
+            ],
           );
         },
       ),
     );
   }
 
+  void _changeZoom(double change) {
+    final newZoom = (_zoomLevel + change)
+        .clamp(_minimumZoom, _maximumZoom)
+        .toDouble();
+    if ((newZoom - _zoomLevel).abs() <= 0.001) return;
+    widget.attentionMonitor?.recordContentInteraction();
+    _pdfController.zoomLevel = newZoom;
+    setState(() => _zoomLevel = newZoom);
+  }
+
+  Widget _buildZoomControls() {
+    final canZoomOut = _zoomLevel > _minimumZoom;
+    final canZoomIn = _zoomLevel < _maximumZoom;
+    final zoomPercentage = (_zoomLevel * 100).round();
+
+    return Material(
+      color: Colors.white,
+      elevation: 4,
+      shadowColor: const Color(0x33000000),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFD1D5DB)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: 'Zoom out',
+              onPressed: canZoomOut ? () => _changeZoom(-_zoomStep) : null,
+              icon: const Icon(Icons.remove_rounded),
+              color: const Color(0xFF111827),
+              disabledColor: const Color(0xFFB8BEC7),
+              iconSize: 23,
+            ),
+            Semantics(
+              label: 'Current zoom $zoomPercentage percent',
+              child: SizedBox(
+                width: 50,
+                child: Text(
+                  '$zoomPercentage%',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFF374151),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Zoom in',
+              onPressed: canZoomIn ? () => _changeZoom(_zoomStep) : null,
+              icon: const Icon(Icons.add_rounded),
+              color: const Color(0xFF111827),
+              disabledColor: const Color(0xFFB8BEC7),
+              iconSize: 23,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildReaderBottomBar() {
     final pageLabel = _totalPages > 0
-        ? 'Page ${_currentPage + 1} of $_totalPages'
+        ? 'Page $_currentPage of $_totalPages'
         : 'Reading document';
+    final canComplete =
+        _documentType == TreatmentDocumentType.docx || _hasReachedLastPage;
     return Material(
       color: const Color(0xFF111827),
       child: Padding(
@@ -1678,10 +1548,12 @@ class _PdfTreatmentScreenState extends State<PdfTreatmentScreen>
             ),
             const SizedBox(width: 12),
             FilledButton.icon(
-              onPressed: _showCompletionDialog,
+              onPressed: canComplete ? _showCompletionDialog : null,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF16A34A),
                 foregroundColor: Colors.white,
+                disabledBackgroundColor: const Color(0xFF374151),
+                disabledForegroundColor: const Color(0xFF9CA3AF),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
                   vertical: 11,

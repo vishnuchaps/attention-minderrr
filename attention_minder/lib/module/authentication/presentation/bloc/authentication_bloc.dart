@@ -42,9 +42,9 @@ class AuthenticationBloc
         email: event.email,
         password: event.password,
       );
-      // Handle authentication success
+      // Persist the session before the UI reacts to authentication success.
+      await saveUserData(response);
       emit(AuthenticationSuccess(response));
-      saveUserData(response);
     } catch (e) {
       emit(AuthenticationError(e.toString()));
     }
@@ -65,9 +65,10 @@ class AuthenticationBloc
         isStaff: true,
       );
 
-      // Handle registration success
+      // Registration returns a complete authenticated session. Persist it
+      // before onboarding starts so profile requests cannot race token storage.
+      await saveUserData(response, showHomeWalkthrough: true);
       emit(AuthenticationSuccess(response));
-      saveUserData(response, showHomeWalkthrough: true);
     } catch (e) {
       emit(AuthenticationError(e.toString()));
     }
@@ -168,8 +169,8 @@ class AuthenticationBloc
           token: idToken,
           provider: 'google',
         );
+        await saveUserData(response);
         emit(AuthenticationSuccess(response));
-        saveUserData(response);
       } else {
         emit(AuthenticationInitial()); // User cancelled
       }
@@ -190,8 +191,8 @@ class AuthenticationBloc
           token: accessToken,
           provider: 'facebook',
         );
+        await saveUserData(response);
         emit(AuthenticationSuccess(response));
-        saveUserData(response);
       } else {
         emit(AuthenticationInitial()); // User cancelled
       }

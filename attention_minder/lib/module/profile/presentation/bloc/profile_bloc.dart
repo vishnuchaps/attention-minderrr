@@ -10,8 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 part 'profile_event.dart';
 part 'profile_state.dart';
-  
-@injectable   
+
+@injectable
 class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
   final IProfileRepository _profileRepository;
   UserData? _profile;
@@ -58,6 +58,7 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
       final response = await _profileRepository.updateUserProfile(
         userData: event.userData,
       );
+      await _cacheUpdatedProfile(event.userData, response);
       emit(UpdateProfileSuccess(response['message']));
     } catch (e) {
       emit(UpdateProfileFailed(e.toString()));
@@ -102,6 +103,24 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
         userData.profileImageUrl!.isNotEmpty) {
       await _cacheProfileImageUrl(userData.profileImageUrl!);
     }
+  }
+
+  Future<void> _cacheUpdatedProfile(
+    Map<String, dynamic> submittedData,
+    Map<String, dynamic> response,
+  ) async {
+    final responseData = response['data'];
+    final mergedData = <String, dynamic>{
+      ...?_profile?.toJson(),
+      ...submittedData,
+      if (responseData is Map<String, dynamic>) ...responseData,
+    };
+
+    // A successful submission from ProfileScreen has already passed every
+    // required-field validator. Some update endpoints return only a message,
+    // so keep the local completion state accurate until the dashboard refresh.
+    mergedData.putIfAbsent('is_completed', () => true);
+    await _cacheProfile(UserData.fromJson(mergedData));
   }
 
   int? _resolveUserId(SharedPreferences prefs) {

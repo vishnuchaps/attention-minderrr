@@ -49,11 +49,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         body: BlocListener<AuthenticationBloc, AuthenticationState>(
           listener: (context, state) {
             if (state is AuthenticationSuccess) {
-              Navigator.pushReplacement(
+              Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(
                   builder: (context) => WelcomeAttentionScreen(),
                 ),
+                (route) => false,
               );
             } else if (state is AuthenticationError) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -153,13 +154,19 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                                 );
                                               },
                                               onSignIn: () {
-                                                Navigator.push(
+                                                final navigator = Navigator.of(
                                                   context,
-                                                  MaterialPageRoute(
-                                                    builder: (context) =>
-                                                        LoginScreen(),
-                                                  ),
                                                 );
+                                                if (navigator.canPop()) {
+                                                  navigator.pop();
+                                                } else {
+                                                  navigator.pushReplacement(
+                                                    MaterialPageRoute(
+                                                      builder: (context) =>
+                                                          const LoginScreen(),
+                                                    ),
+                                                  );
+                                                }
                                               },
                                             ),
                                           ),

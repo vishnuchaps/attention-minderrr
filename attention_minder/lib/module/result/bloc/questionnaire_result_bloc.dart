@@ -2,7 +2,6 @@ import 'package:attention_minder/module/result/data/model/questionnaire_result_m
 import 'package:attention_minder/module/result/data/repository/iresult_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:injectable/injectable.dart';
-
 part 'questionnaire_result_event.dart';
 part 'questionnaire_result_state.dart';
 

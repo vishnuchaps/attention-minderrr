@@ -1,6 +1,7 @@
 import 'package:attention_minder/module/profile/presentation/bloc/profile_bloc.dart';
 import 'package:attention_minder/module/profile/presentation/screens/profile_screen.dart';
 import 'package:attention_minder/constant/app_constant.dart';
+import 'package:attention_minder/Config/widgets/default_profile_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -28,8 +29,6 @@ class UserProfileAvatar extends StatefulWidget {
 }
 
 class _UserProfileAvatarState extends State<UserProfileAvatar> {
-  static const String _fallbackAsset = 'asset/images/Ellipse 125.png';
-
   String? _cachedProfileImageUrl;
 
   @override
@@ -80,13 +79,13 @@ class _UserProfileAvatarState extends State<UserProfileAvatar> {
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.14),
-                blurRadius: 14,
-                offset: const Offset(0, 6),
+                blurRadius: 5,
+                offset: const Offset(0, 2),
               ),
               BoxShadow(
                 color: const Color(0xFF2387EA).withValues(alpha: 0.14),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
+                blurRadius: 5,
+                offset: const Offset(0, 1),
               ),
             ],
           ),
@@ -96,17 +95,7 @@ class _UserProfileAvatarState extends State<UserProfileAvatar> {
               shape: BoxShape.circle,
               color: widget.borderColor,
             ),
-            child: ClipOval(
-              child: Image(
-                image: _imageProvider(profileImageUrl),
-                width: widget.size,
-                height: widget.size,
-                fit: widget.fit,
-                errorBuilder: (context, error, stackTrace) {
-                  return _FallbackAvatar(size: widget.size);
-                },
-              ),
-            ),
+            child: ClipOval(child: _buildProfileImage(profileImageUrl)),
           ),
         );
 
@@ -144,8 +133,30 @@ class _UserProfileAvatarState extends State<UserProfileAvatar> {
         _cachedProfileImageUrl;
   }
 
-  ImageProvider _imageProvider(String? profileImageUrl) {
-    if (profileImageUrl != null && profileImageUrl.isNotEmpty) {
+  Widget _buildProfileImage(String? profileImageUrl) {
+    if (_hasUploadedImage(profileImageUrl)) {
+      final imageProvider = _imageProvider(profileImageUrl!);
+      return Image(
+        image: imageProvider,
+        width: widget.size,
+        height: widget.size,
+        fit: widget.fit,
+        errorBuilder: (context, error, stackTrace) {
+          return DefaultProfileAvatar(size: widget.size);
+        },
+      );
+    }
+
+    return DefaultProfileAvatar(size: widget.size);
+  }
+
+  bool _hasUploadedImage(String? profileImageUrl) {
+    if (profileImageUrl == null || profileImageUrl.trim().isEmpty) return false;
+    return !profileImageUrl.contains('Ellipse 125.png');
+  }
+
+  ImageProvider _imageProvider(String profileImageUrl) {
+    if (profileImageUrl.isNotEmpty) {
       if (profileImageUrl.startsWith('asset/')) {
         return AssetImage(profileImageUrl);
       }
@@ -157,33 +168,6 @@ class _UserProfileAvatarState extends State<UserProfileAvatar> {
       return NetworkImage(imageUrl);
     }
 
-    return const AssetImage(_fallbackAsset);
-  }
-}
-
-class _FallbackAvatar extends StatelessWidget {
-  final double size;
-
-  const _FallbackAvatar({required this.size});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFEAF4FF), Color(0xFFB9DCFF)],
-        ),
-      ),
-      child: Icon(
-        Icons.person_rounded,
-        color: const Color(0xFF1F6FB8),
-        size: size * 0.52,
-      ),
-    );
+    throw ArgumentError.value(profileImageUrl, 'profileImageUrl');
   }
 }

@@ -59,6 +59,7 @@ class _VideoTreatmentScreenState extends State<VideoTreatmentScreen> {
   List<String> _lastRecommendations = [];
   bool _isShowingAlert = false;
   bool _isShowingCameraError = false;
+  BuildContext? _attentionDialogContext;
   AttentionSessionMetrics? _completedSessionMetrics;
 
   // Message history for session summary
@@ -626,6 +627,7 @@ face_height             : ${facePos?['client_height']}
 
         _latestValidationResult = result;
         _validationRevision.value++;
+        _autoDismissAttentionAlertIfReady();
 
         final bool faceDetected = result['face_detected'] == true;
         final int concentrationScore = result['concentration_score'] ?? 0;
@@ -866,14 +868,46 @@ face_height             : ${facePos?['client_height']}
 
     if (!widget.isAssessment) {
       final currentFrameReady = result['ready_to_continue'];
-      if (currentFrameReady is bool) return currentFrameReady;
-      return !_hasUiWarning(result);
+      final uiFlags = result['ui_flags'] as Map<String, dynamic>?;
+      final warningStillActive =
+          _hasUiWarning(result) ||
+          result['should_show_alert'] == true ||
+          uiFlags?['should_show_alert'] == true;
+      final physicallyReady = currentFrameReady is bool
+          ? currentFrameReady
+          : !warningStillActive;
+
+      // Do not auto-close on a centered-head frame while a left/right eye
+      // gaze warning remains active. The same dialog stays open for the whole
+      // warning episode, which also prevents repeated alert audio.
+      return physicallyReady && !warningStillActive;
     }
 
     final bool faceDetected = result['face_detected'] == true;
     final analysis = result['analysis'] as Map<String, dynamic>?;
     final bool lowLight = analysis?['low_light'] == true;
     return faceDetected && !lowLight;
+  }
+
+  void _autoDismissAttentionAlertIfReady() {
+    final dialogContext = _attentionDialogContext;
+    if (!_isShowingAlert ||
+        dialogContext == null ||
+        !dialogContext.mounted ||
+        !_verifyUserReady()) {
+      return;
+    }
+
+    _attentionDialogContext = null;
+    setState(() {
+      _isShowingAlert = false;
+      _consecutiveGoodFrames = 0;
+      _consecutiveBadFrames = 0;
+      _sameWarningReasonCount = 0;
+      _lastWarningReason = null;
+    });
+    Navigator.of(dialogContext).pop();
+    _videoController?.play();
   }
 
   void _showAttentionAlert(String message, List<String> recommendations) async {
@@ -891,23 +925,32 @@ face_height             : ${facePos?['client_height']}
 
     if (!mounted) return;
 
-    showDialog(
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => ValueListenableBuilder<int>(
-        valueListenable: _validationRevision,
-        builder: (context, revision, child) {
-          return PopScope(
-            canPop: false,
-            child: _buildAttentionAlertDialog(
-              context: context,
-              message: message,
-              recommendations: recommendations,
-            ),
-          );
-        },
-      ),
+      builder: (dialogContext) {
+        _attentionDialogContext = dialogContext;
+        if (_verifyUserReady()) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _autoDismissAttentionAlertIfReady();
+          });
+        }
+        return ValueListenableBuilder<int>(
+          valueListenable: _validationRevision,
+          builder: (context, revision, child) {
+            return PopScope(
+              canPop: false,
+              child: _buildAttentionAlertDialog(
+                context: context,
+                message: message,
+                recommendations: recommendations,
+              ),
+            );
+          },
+        );
+      },
     );
+    _attentionDialogContext = null;
   }
 
   Widget _buildAttentionAlertDialog({
@@ -1023,30 +1066,6 @@ face_height             : ${facePos?['client_height']}
                       ),
                       _buildStatItem('Time', _formatDuration(_sessionDuration)),
                     ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                ElevatedButton(
-                  onPressed: () => _handleAttentionAlertResumePressed(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isReady
-                        ? const Color(0xFF43E267)
-                        : const Color(0xFF4B535A),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  child: Text(
-                    isReady
-                        ? 'Continue Video'
-                        : 'Correct Your Focus to Continue',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
                   ),
                 ),
               ],
@@ -1304,104 +1323,6 @@ face_height             : ${facePos?['client_height']}
     );
   }
 
-  Future<void> _handleAttentionAlertResumePressed(BuildContext context) async {
-    if (_verifyUserReady()) {
-      setState(() {
-        _isShowingAlert = false;
-        _consecutiveGoodFrames = 0;
-        _consecutiveBadFrames = 0;
-        _sameWarningReasonCount = 0;
-        _lastWarningReason = null;
-      });
-      Navigator.pop(context);
-      _videoController?.play();
-      return;
-    }
-
-    final latestResult = _latestValidationResult;
-    String feedbackMessage = 'Please ensure:';
-    List<String> issues = [];
-
-    if (latestResult != null) {
-      if (!(latestResult['face_detected'] ?? false)) {
-        issues.add('✗ Your face is visible in the camera');
-      }
-
-      final analysis = latestResult['analysis'] as Map<String, dynamic>?;
-
-      if (analysis?['low_light'] == true) {
-        issues.add('✗ Lighting is bright enough for clear face detection');
-      }
-
-      if (!widget.isAssessment) {
-        if (analysis?['not_drowsy'] == false) {
-          issues.add('✗ You are not drowsy');
-        }
-
-        if (analysis?['yawning'] == true) {
-          issues.add('✗ You are not yawning');
-        }
-
-        if (analysis?['eyes_closed'] == true) {
-          issues.add('✗ Your eyes are open');
-        }
-
-        if (!(latestResult['validation_passed'] ?? false)) {
-          issues.add('✗ You are properly positioned');
-        }
-
-        final concentrationScore = latestResult['concentration_score'] ?? 0;
-
-        if (concentrationScore < 7) {
-          issues.add(
-            '✗ Your concentration level is adequate (currently: $concentrationScore/10)',
-          );
-        }
-
-        final engagement = latestResult['engagement'] as Map<String, dynamic>?;
-
-        if (engagement != null && !(engagement['video_attentive'] ?? false)) {
-          issues.add('✗ You are looking at the screen');
-        }
-      }
-    }
-
-    if (issues.isEmpty) {
-      issues.add('Please wait a moment and try again');
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              feedbackMessage,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            ...issues.map(
-              (issue) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(issue, style: const TextStyle(fontSize: 13)),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: const Color(0xFFEF5350),
-        duration: const Duration(seconds: 4),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-
-    await _notificationService?.playAttentionAlert(
-      customMessage: 'Not ready yet. ${issues.first.replaceAll('✗ ', '')}',
-      playSound: false,
-      speakMessage: true,
-    );
-  }
-
   Widget _buildStatItem(String label, String value) {
     return Column(
       children: [
@@ -1605,6 +1526,7 @@ face_height             : ${facePos?['client_height']}
 
     return AiAssessmentScoreRequest(
       fileId: fileId,
+      contentType: 'video',
       isAssessment: widget.isAssessment,
       finalScore: metrics.finalScore,
       attentionEngagementRate: metrics.attentionEngagementRate,
@@ -1613,7 +1535,7 @@ face_height             : ${facePos?['client_height']}
       sampledFrames: metrics.sampledFrames,
       sessionDurationSeconds: metrics.sessionDurationSeconds,
       inattentionDuration: metrics.inattentionDuration,
-      gazeRatioAvg: metrics.gazeRatioAverage,
+      gazeRatioAvg: 1.5,
       drowsyState: metrics.drowsyState,
       brightnessScore: metrics.brightnessScore,
       pitch: metrics.pitch,
@@ -1632,7 +1554,8 @@ face_height             : ${facePos?['client_height']}
   Future<void> _saveScoreAndExit(BuildContext dialogContext) async {
     final request = _buildScoreRequest();
     if (request == null) {
-      _showError(
+      _showCompletionError(
+        dialogContext,
         'Unable to save this session because its video ID is missing.',
       );
       return;
@@ -1651,12 +1574,25 @@ face_height             : ${facePos?['client_height']}
     if (!mounted || !dialogContext.mounted) return;
 
     if (state is AiAssessmentScoreSaveFailure) {
-      _showError(state.message);
+      _showCompletionError(dialogContext, state.message);
       return;
     }
 
     Navigator.of(dialogContext).pop();
     if (mounted) Navigator.of(context).pop();
+  }
+
+  void _showCompletionError(BuildContext dialogContext, String message) {
+    final messenger = ScaffoldMessenger.maybeOf(dialogContext);
+    if (messenger == null) {
+      _showError(message);
+      return;
+    }
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
   }
 
   void _showCompletionDialog([Map<String, dynamic>? backendResult]) async {
@@ -1729,27 +1665,40 @@ face_height             : ${facePos?['client_height']}
       barrierColor: Colors.black,
       transitionDuration: const Duration(milliseconds: 260),
       pageBuilder: (dialogContext, animation, secondaryAnimation) {
-        return _ManagementCompletionView(
-          completionMessage: completionMessage,
-          day: backendResult?['day_completed'] ?? widget.day,
-          orderNumber:
-              backendResult?['order_number'] ??
-              widget.videos[_currentVideoIndex].orderNumber,
-          videosWatched: widget.videos.length,
-          sessionDuration: useLocalMetrics
-              ? _formatDuration(localMetrics.sessionDurationSeconds)
-              : _formatDuration(_sessionDuration),
-          metricsCount: metricsCount,
-          totalFrames: totalFrames,
-          avgConcentration: avgConcentration,
-          faceDetectionPercentage: faceDetectedPercentage,
-          attentionPercentage: attentionPercentage,
-          maxInattention: maxInattention,
-          progressUpdated: progressUpdated,
-          score: safeDisplayScore,
-          performanceLevel: performanceLevel,
-          performanceColor: performanceColor,
-          onDone: () => _saveScoreAndExit(dialogContext),
+        return ScaffoldMessenger(
+          child: Builder(
+            builder: (completionContext) => Scaffold(
+              backgroundColor: Colors.black,
+              body: ManagementCompletionView(
+                sessionTitle: 'Session Complete',
+                completionMessage: completionMessage,
+                day: backendResult?['day_completed'] ?? widget.day,
+                orderNumber:
+                    backendResult?['order_number'] ??
+                    widget.videos[_currentVideoIndex].orderNumber,
+                completedItemLabel: 'Videos watched',
+                completedItemValue: '${widget.videos.length}',
+                completedItemIcon: Icons.play_circle_outline,
+                sessionDuration: useLocalMetrics
+                    ? _formatDuration(localMetrics.sessionDurationSeconds)
+                    : _formatDuration(_sessionDuration),
+                metricsCount: metricsCount,
+                totalFrames: totalFrames,
+                avgConcentration: avgConcentration,
+                faceDetectionPercentage: faceDetectedPercentage,
+                attentionPercentage: attentionPercentage,
+                maxInattention: maxInattention,
+                attentionMetricLabel: 'Attention',
+                fourthMetricLabel: 'Progress',
+                fourthMetricValue: progressUpdated ? 'Updated' : 'Pending',
+                fourthMetricIcon: Icons.task_alt_outlined,
+                score: safeDisplayScore,
+                performanceLevel: performanceLevel,
+                performanceColor: performanceColor,
+                onDone: () => _saveScoreAndExit(completionContext),
+              ),
+            ),
+          ),
         );
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -1768,8 +1717,15 @@ face_height             : ${facePos?['client_height']}
       barrierColor: Colors.black,
       transitionDuration: const Duration(milliseconds: 260),
       pageBuilder: (dialogContext, animation, secondaryAnimation) {
-        return _AssessmentCompletionView(
-          onDone: () => _saveScoreAndExit(dialogContext),
+        return ScaffoldMessenger(
+          child: Builder(
+            builder: (completionContext) => Scaffold(
+              backgroundColor: Colors.black,
+              body: _AssessmentCompletionView(
+                onDone: () => _saveScoreAndExit(completionContext),
+              ),
+            ),
+          ),
         );
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -1993,11 +1949,14 @@ face_height             : ${facePos?['client_height']}
   }
 }
 
-class _ManagementCompletionView extends StatelessWidget {
+class ManagementCompletionView extends StatelessWidget {
+  final String sessionTitle;
   final String completionMessage;
   final Object day;
   final Object orderNumber;
-  final int videosWatched;
+  final String completedItemLabel;
+  final String completedItemValue;
+  final IconData completedItemIcon;
   final String sessionDuration;
   final int metricsCount;
   final int totalFrames;
@@ -2005,17 +1964,24 @@ class _ManagementCompletionView extends StatelessWidget {
   final double faceDetectionPercentage;
   final double attentionPercentage;
   final double maxInattention;
-  final bool progressUpdated;
+  final String attentionMetricLabel;
+  final String fourthMetricLabel;
+  final String fourthMetricValue;
+  final IconData fourthMetricIcon;
   final int score;
   final String performanceLevel;
   final Color performanceColor;
   final VoidCallback onDone;
 
-  const _ManagementCompletionView({
+  const ManagementCompletionView({
+    super.key,
+    required this.sessionTitle,
     required this.completionMessage,
     required this.day,
     required this.orderNumber,
-    required this.videosWatched,
+    required this.completedItemLabel,
+    required this.completedItemValue,
+    required this.completedItemIcon,
     required this.sessionDuration,
     required this.metricsCount,
     required this.totalFrames,
@@ -2023,7 +1989,10 @@ class _ManagementCompletionView extends StatelessWidget {
     required this.faceDetectionPercentage,
     required this.attentionPercentage,
     required this.maxInattention,
-    required this.progressUpdated,
+    required this.attentionMetricLabel,
+    required this.fourthMetricLabel,
+    required this.fourthMetricValue,
+    required this.fourthMetricIcon,
     required this.score,
     required this.performanceLevel,
     required this.performanceColor,
@@ -2049,21 +2018,21 @@ class _ManagementCompletionView extends StatelessWidget {
       ),
       _ManagementMetricData(
         icon: Icons.visibility_outlined,
-        label: 'Attention',
+        label: attentionMetricLabel,
         value: '${attentionPercentage.toStringAsFixed(0)}%',
       ),
       _ManagementMetricData(
-        icon: Icons.task_alt_outlined,
-        label: 'Progress',
-        value: progressUpdated ? 'Updated' : 'Pending',
+        icon: fourthMetricIcon,
+        label: fourthMetricLabel,
+        value: fourthMetricValue,
       ),
     ];
 
     final detailMetrics = <_ManagementMetricData>[
       _ManagementMetricData(
-        icon: Icons.play_circle_outline,
-        label: 'Videos watched',
-        value: '$videosWatched',
+        icon: completedItemIcon,
+        label: completedItemLabel,
+        value: completedItemValue,
       ),
       _ManagementMetricData(
         icon: Icons.timer_outlined,
@@ -2150,7 +2119,7 @@ class _ManagementCompletionView extends StatelessWidget {
                             ),
                             SizedBox(height: isShort ? 8 : 12 * scale),
                             Text(
-                              'Session Complete',
+                              sessionTitle,
                               textAlign: TextAlign.center,
                               maxLines: 1,
                               style: TextStyle(
@@ -2502,12 +2471,12 @@ class _PrimaryMetricPill extends StatelessWidget {
             width: compact ? 30 : 34,
             height: compact ? 30 : 34,
             decoration: BoxDecoration(
-              color: _ManagementCompletionView._gold.withValues(alpha: .14),
+              color: ManagementCompletionView._gold.withValues(alpha: .14),
               shape: BoxShape.circle,
             ),
             child: Icon(
               data.icon,
-              color: _ManagementCompletionView._gold,
+              color: ManagementCompletionView._gold,
               size: compact ? 17 : 19,
             ),
           ),
@@ -2592,7 +2561,7 @@ class _DetailMetricChip extends StatelessWidget {
         children: [
           Icon(
             data.icon,
-            color: _ManagementCompletionView._gold,
+            color: ManagementCompletionView._gold,
             size: compact ? 14 : 15,
           ),
           const SizedBox(width: 6),
